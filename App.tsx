@@ -6,7 +6,22 @@ import ScheduleView from './components/ScheduleView';
 import MinistryList from './components/MinistryList';
 import EventTypeList from './components/EventTypeList';
 import { db } from './services/db';
-import { Users, Calendar, Church, BookOpen, ListFilter, Loader2, AlertCircle, Database } from 'lucide-react';
+import { Users, Calendar, BookOpen, ListFilter, Loader2, AlertCircle, Database } from 'lucide-react';
+
+// Custom Logo Component mimicking the IASD diamond structure
+const IASDLogo = ({ className }: { className?: string }) => (
+  <svg viewBox="0 0 100 100" fill="none" stroke="currentColor" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    {/* Diamond Shape */}
+    <path d="M50 5 L95 50 L50 95 L5 50 Z" />
+    {/* Vertical Line */}
+    <path d="M50 5 L50 95" />
+    {/* Curved Lines (Leaves/Pages) */}
+    <path d="M5 50 Q 27.5 50 50 27.5" />
+    <path d="M95 50 Q 72.5 50 50 27.5" />
+    <path d="M5 50 Q 27.5 50 50 72.5" />
+    <path d="M95 50 Q 72.5 50 50 72.5" />
+  </svg>
+);
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'schedule' | 'volunteers' | 'ministries' | 'eventTypes'>('schedule');
@@ -185,12 +200,12 @@ const App: React.FC = () => {
       {/* Sidebar Navigation */}
       <aside className="w-full md:w-64 bg-white border-r border-brand-muted/20 flex-shrink-0">
         <div className="p-6 flex items-center gap-3 border-b border-brand-muted/10">
-          <div className="bg-brand-primary text-white p-2 rounded-lg">
-            <Church size={24} />
+          <div className="text-brand-primary p-1 rounded-lg">
+             <IASDLogo className="w-10 h-10" />
           </div>
           <div>
-            <h1 className="font-bold text-brand-secondary text-lg leading-tight">Ecclesia</h1>
-            <p className="text-xs text-brand-muted">Gestão de Escalas</p>
+            <h1 className="font-bold text-brand-secondary text-2xl leading-none">Voluntário</h1>
+            <p className="text-sm font-medium text-brand-muted mt-1">IASD Bosque</p>
           </div>
         </div>
 
@@ -275,8 +290,13 @@ const App: React.FC = () => {
           
           {/* Header Mobile Only */}
           <div className="md:hidden flex items-center gap-3 mb-6 pb-4 border-b border-brand-muted/20">
-            <Church className="text-brand-primary" />
-            <h1 className="font-bold text-brand-secondary text-xl">Ecclesia Scheduler</h1>
+            <div className="text-brand-primary">
+                <IASDLogo className="w-8 h-8" />
+            </div>
+            <div>
+                 <h1 className="font-bold text-brand-secondary text-xl leading-none">Voluntário</h1>
+                 <p className="text-xs text-brand-muted">IASD Bosque</p>
+            </div>
           </div>
 
           {activeTab === 'schedule' && (
