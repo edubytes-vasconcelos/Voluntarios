@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Volunteer, ServiceEvent } from '../types';
 import { generateScheduleWithAI } from '../services/geminiService';
@@ -29,8 +30,22 @@ const AIScheduler: React.FC<AISchedulerProps> = ({ volunteers, availableRoles, o
     setError(null);
 
     const [year, m] = month.split('-').map(Number);
-    const startDate = new Date(year, m - 1, 1).toISOString().split('T')[0];
-    const endDate = new Date(year, m, 0).toISOString().split('T')[0];
+    
+    // CORREÇÃO DE TIMEZONE:
+    // Criamos as datas strings manualmente para evitar que toISOString() subtraia horas e mude o dia/mês devido ao fuso horário
+    // new Date(year, m-1, 1) cria a data local. Formatamos para string local.
+    const start = new Date(year, m - 1, 1);
+    const end = new Date(year, m, 0); // Último dia do mês
+
+    const formatDate = (d: Date) => {
+        const y = d.getFullYear();
+        const mo = String(d.getMonth() + 1).padStart(2, '0');
+        const da = String(d.getDate()).padStart(2, '0');
+        return `${y}-${mo}-${da}`;
+    };
+
+    const startDate = formatDate(start);
+    const endDate = formatDate(end);
 
     try {
       const generatedServices = await generateScheduleWithAI(

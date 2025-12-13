@@ -1,4 +1,7 @@
+
 export type RoleType = string;
+
+export type AccessLevel = 'admin' | 'leader' | 'volunteer';
 
 export interface Ministry {
   name: string;
@@ -18,11 +21,19 @@ export interface Volunteer {
   email?: string;
   unavailableDates?: string[]; // ISO Date strings
   avatarUrl?: string;
+  accessLevel?: AccessLevel; // Novo campo para controle de permissão
+}
+
+export interface Team {
+  id: string;
+  name: string;
+  memberIds: string[]; // IDs dos voluntários que compõem a equipe
 }
 
 export interface Assignment {
   role: RoleType;
-  volunteerId: string;
+  volunteerId?: string; // Agora opcional
+  teamId?: string;      // Novo campo opcional para equipe
 }
 
 export interface ServiceEvent {

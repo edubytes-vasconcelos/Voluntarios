@@ -1,5 +1,6 @@
+
 import { supabase } from './supabaseClient';
-import { Volunteer, Ministry, ServiceEvent, EventType } from '../types';
+import { Volunteer, Ministry, ServiceEvent, EventType, Team } from '../types';
 
 // Convert DB snake_case to CamelCase if necessary, 
 // but here we align DB columns to types or map them manually.
@@ -14,7 +15,9 @@ export const db = {
       id: v.id,
       name: v.name,
       roles: v.roles || [], // Ensure array
-      avatarUrl: v.avatar_url
+      avatarUrl: v.avatar_url,
+      email: v.email,
+      accessLevel: v.access_level || 'volunteer' // Default to volunteer if null
     }));
   },
 
@@ -23,13 +26,49 @@ export const db = {
       id: volunteer.id,
       name: volunteer.name,
       roles: volunteer.roles,
-      avatar_url: volunteer.avatarUrl
+      avatar_url: volunteer.avatarUrl,
+      email: volunteer.email,
+      access_level: volunteer.accessLevel
     });
     if (error) throw error;
   },
 
   async removeVolunteer(id: string) {
     const { error } = await supabase.from('volunteers').delete().eq('id', id);
+    if (error) throw error;
+  },
+
+  // --- Teams ---
+  async getTeams(): Promise<Team[]> {
+    const { data, error } = await supabase.from('teams').select('*');
+    if (error) throw error;
+    
+    return data.map((t: any) => ({
+      id: t.id,
+      name: t.name,
+      memberIds: t.member_ids || []
+    }));
+  },
+
+  async addTeam(team: Team) {
+    const { error } = await supabase.from('teams').insert({
+      id: team.id,
+      name: team.name,
+      member_ids: team.memberIds
+    });
+    if (error) throw error;
+  },
+
+  async updateTeam(team: Team) {
+    const { error } = await supabase.from('teams').update({
+      name: team.name,
+      member_ids: team.memberIds
+    }).eq('id', team.id);
+    if (error) throw error;
+  },
+
+  async removeTeam(id: string) {
+    const { error } = await supabase.from('teams').delete().eq('id', id);
     if (error) throw error;
   },
 
