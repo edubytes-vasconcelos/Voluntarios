@@ -1,0 +1,7 @@
+{
+  "name": "Voluntariado",
+  "description": "Aplicativo inteligente de gestão de escalas de voluntários para igrejas, utilizando IA para organizar e otimizar a distribuição de tarefas.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
