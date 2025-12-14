@@ -1,6 +1,6 @@
 
 import { supabase } from './supabaseClient';
-import { Volunteer, Ministry, ServiceEvent, EventType, Team } from '../types';
+import { Volunteer, Ministry, ServiceEvent, EventType, Team, AuditLogEntry } from '../types';
 
 // Convert DB snake_case to CamelCase if necessary, 
 // but here we align DB columns to types or map them manually.
@@ -46,7 +46,7 @@ export const db = {
     return data.map((t: any) => ({
       id: t.id,
       name: t.name,
-      memberIds: t.member_ids || []
+      member_ids: t.member_ids || []
     }));
   },
 
@@ -147,5 +147,12 @@ export const db = {
   async removeService(id: string) {
     const { error } = await supabase.from('services').delete().eq('id', id);
     if (error) throw error;
+  },
+
+  // --- Audit Logs ---
+  async addAuditLog(entry: AuditLogEntry) {
+    // We don't throw error here to avoid blocking the main action if logging fails
+    const { error } = await supabase.from('audit_logs').insert(entry);
+    if (error) console.error("Failed to write audit log:", error);
   }
 };

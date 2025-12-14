@@ -30,10 +30,14 @@ export interface Team {
   memberIds: string[]; // IDs dos voluntários que compõem a equipe
 }
 
+export type AssignmentStatus = 'pending' | 'confirmed' | 'declined';
+
 export interface Assignment {
   role: RoleType;
   volunteerId?: string; // Agora opcional
   teamId?: string;      // Novo campo opcional para equipe
+  status?: AssignmentStatus; // Novo campo para RSVP
+  declineReason?: string; // Novo campo para motivo da recusa
 }
 
 export interface ServiceEvent {
@@ -61,4 +65,12 @@ export interface GeneratedScheduleResponse {
       volunteerName: string; // AI returns names for ease, we map back to IDs
     }[];
   }[];
+}
+
+export interface AuditLogEntry {
+  user_email?: string;
+  action: string;
+  resource: string;
+  resource_id: string;
+  details?: any;
 }

@@ -1,7 +1,7 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
-import { ServiceEvent, Volunteer, Assignment, Ministry, EventType, Team } from '../types';
-import { Calendar as CalendarIcon, Users, Trash2, Plus, X, Save, BookOpen, AlertCircle, Filter, UserCheck, Shield, Repeat } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { ServiceEvent, Volunteer, Assignment, Ministry, EventType, Team, AssignmentStatus } from '../types';
+import { Calendar as CalendarIcon, Users, Trash2, Plus, X, Save, BookOpen, AlertCircle, Filter, UserCheck, Shield, Repeat, Share2, Printer, MessageCircle, CheckCircle2, XCircle, Clock, AlertTriangle, Loader2, Send } from 'lucide-react';
 import { AVAILABLE_ICONS } from '../constants';
 
 interface ScheduleViewProps {
@@ -13,6 +13,7 @@ interface ScheduleViewProps {
   onAddService: (service: ServiceEvent) => void;
   onUpdateService: (service: ServiceEvent) => void;
   onRemoveService: (id: string) => void;
+  onLogAction?: (action: string, resource: string, resourceId: string, details: any) => void;
   readOnly?: boolean;
   currentUserId?: string;
 }
@@ -26,21 +27,25 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
   onAddService, 
   onUpdateService,
   onRemoveService,
+  onLogAction,
   readOnly = false,
   currentUserId
 }) => {
   // --- PERMISSION & INITIALIZATION LOGIC ---
   const currentUser = currentUserId ? volunteers.find(v => v.id === currentUserId) : null;
-  
-  // Tratamento robusto: se accessLevel for undefined, assume 'volunteer'
   const userAccessLevel = currentUser?.accessLevel || 'volunteer';
   
-  // Inicializa o filtro com base no nível de acesso
   const [viewFilter, setViewFilter] = useState<'all' | 'mine'>(() => {
     return userAccessLevel === 'volunteer' ? 'mine' : 'all';
   });
+  
+  // Local loading state for RSVP actions
+  const [updatingAssignment, setUpdatingAssignment] = useState<{serviceId: string, assignmentIndex: number} | null>(null);
+  
+  // State for Decline Reason Input (Replaces window.prompt)
+  const [decliningAssignment, setDecliningAssignment] = useState<{serviceId: string, assignmentIndex: number} | null>(null);
+  const [declineReasonText, setDeclineReasonText] = useState('');
 
-  // Atualiza o filtro se o usuário mudar (ex: logout/login com outro usuário)
   useEffect(() => {
     if (userAccessLevel === 'volunteer') {
       setViewFilter('mine');
@@ -58,7 +63,6 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurringEndDate, setRecurringEndDate] = useState('');
   
-  // Calculate max date (3 months from today) for the input attribute
   const maxRecurDateStr = useMemo(() => {
       const d = new Date();
       d.setMonth(d.getMonth() + 3);
@@ -147,11 +151,8 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
     return true;
   });
 
-  // Validação do formulário para habilitar/desabilitar botão
   const isFormValid = useMemo(() => {
       if (!newServiceDate) return false;
-      
-      // Valida Título
       let titleOk = false;
       if (selectedEventTypeId && selectedEventTypeId !== 'custom') {
           titleOk = true; 
@@ -160,19 +161,14 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
       }
       if (!titleOk) return false;
 
-      // Valida Recorrência
       if (isRecurring) {
           if (!recurringEndDate) return false;
-          // Garante que data fim é maior ou igual a data inicio
           if (recurringEndDate < newServiceDate) return false;
-          // Garante que não excede 3 meses
           if (recurringEndDate > maxRecurDateStr) return false;
       }
-
       return true;
   }, [newServiceDate, selectedEventTypeId, newServiceTitle, isRecurring, recurringEndDate, maxRecurDateStr]);
 
-  // Verifica erro de intervalo de datas para feedback visual
   const isDateRangeInvalid = useMemo(() => {
       if (isRecurring && recurringEndDate && newServiceDate) {
           return recurringEndDate < newServiceDate;
@@ -180,7 +176,6 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
       return false;
   }, [isRecurring, recurringEndDate, newServiceDate]);
 
-  // Verifica erro de limite máximo
   const isDateLimitExceeded = useMemo(() => {
       if (isRecurring && recurringEndDate && maxRecurDateStr) {
           return recurringEndDate > maxRecurDateStr;
@@ -188,8 +183,9 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
       return false;
   }, [isRecurring, recurringEndDate, maxRecurDateStr]);
 
+  // --- ACTIONS HANDLERS ---
+
   const handleSaveService = () => {
-    // 1. Validações Básicas
     if (!newServiceDate) {
         alert('Selecione uma data inicial.');
         return;
@@ -206,7 +202,6 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
         return;
     }
 
-    // 2. Lógica de Geração de Datas (Recorrência)
     const datesToCreate: string[] = [];
     
     if (isRecurring) {
@@ -223,8 +218,6 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
             return;
         }
 
-        // Gera datas a cada 7 dias
-        // Usamos T12:00:00 para evitar problemas de fuso horário
         let currentDateObj = new Date(newServiceDate + 'T12:00:00'); 
         const endDateObj = new Date(recurringEndDate + 'T12:00:00');
         
@@ -236,7 +229,6 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
         datesToCreate.push(newServiceDate);
     }
 
-    // 3. Validação de Duplicidade em Lote
     if (selectedEventTypeId && selectedEventTypeId !== 'custom') {
       const conflicts = datesToCreate.filter(dateStr => {
           return services.some(s => {
@@ -250,17 +242,14 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
             `ATENÇÃO: Existem ${conflicts.length} conflito(s) de eventos deste tipo nas datas selecionadas (Ex: ${conflicts[0]}).\n\nDeseja continuar e criar apenas os eventos que NÃO possuem conflito?`
         );
         if (!confirm) return;
-        
-        // Remove as datas conflitantes da lista de criação
         const nonConflictingDates = datesToCreate.filter(d => !conflicts.includes(d));
-        datesToCreate.length = 0; // Limpa array original
+        datesToCreate.length = 0; 
         datesToCreate.push(...nonConflictingDates);
       }
     }
 
     if (datesToCreate.length === 0) return;
 
-    // 4. Salvar (Loop)
     datesToCreate.forEach((dateStr, index) => {
         const newService: ServiceEvent = {
           id: `manual-${Date.now()}-${index}`,
@@ -272,7 +261,6 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
         onAddService(newService);
     });
     
-    // Limpar e fechar
     setNewServiceDate('');
     setNewServiceTitle('');
     setSelectedEventTypeId('');
@@ -286,7 +274,8 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
     const service = services.find(s => s.id === serviceId);
     if (!service) return;
     
-    const newAssignment: Assignment = { role: selectedRole };
+    // Default status is pending
+    const newAssignment: Assignment = { role: selectedRole, status: 'pending' };
     if (assignmentType === 'volunteer') {
         newAssignment.volunteerId = selectedEntityId;
     } else {
@@ -311,13 +300,116 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
     onUpdateService({ ...service, assignments: updatedAssignments });
   };
 
+  // --- RSVP HANDLER LOGIC ---
+  const handleInitiateRSVP = (e: React.MouseEvent, serviceId: string, assignmentIndex: number, status: AssignmentStatus) => {
+    e.stopPropagation(); 
+    e.preventDefault();
+
+    if (status === 'confirmed') {
+        executeRSVP(serviceId, assignmentIndex, 'confirmed');
+    } else if (status === 'declined') {
+        // Open inline Decline UI
+        setDeclineReasonText('');
+        setDecliningAssignment({ serviceId, assignmentIndex });
+    }
+  };
+
+  const handleConfirmDecline = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (!decliningAssignment) return;
+      
+      const reason = declineReasonText.trim() || 'Indisponibilidade';
+      executeRSVP(decliningAssignment.serviceId, decliningAssignment.assignmentIndex, 'declined', reason);
+      setDecliningAssignment(null);
+  };
+
+  const handleCancelDecline = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      setDecliningAssignment(null);
+  }
+
+  const executeRSVP = async (serviceId: string, assignmentIndex: number, status: AssignmentStatus, reason?: string) => {
+    const service = services.find(s => s.id === serviceId);
+    if (!service) return;
+
+    // Set loading state
+    setUpdatingAssignment({ serviceId, assignmentIndex });
+
+    const updatedAssignments = [...service.assignments];
+    const targetAssignment = updatedAssignments[assignmentIndex];
+    
+    updatedAssignments[assignmentIndex] = {
+        ...targetAssignment,
+        status: status,
+        declineReason: reason
+    };
+
+    try {
+        await onUpdateService({ ...service, assignments: updatedAssignments });
+        
+        // --- LOG AUDIT ---
+        if (onLogAction) {
+            const actionType = status === 'confirmed' ? 'RSVP_CONFIRM' : 'RSVP_DECLINE';
+            onLogAction(actionType, 'services', service.id, {
+                serviceDate: service.date,
+                serviceTitle: service.title,
+                assignmentRole: targetAssignment.role,
+                reason: reason || null
+            });
+        }
+
+    } finally {
+        setUpdatingAssignment(null);
+    }
+  };
+
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  const handleWhatsAppShare = () => {
+    if (displayedServices.length === 0) {
+        alert("Não há eventos para compartilhar nesta visualização.");
+        return;
+    }
+
+    let message = `📅 *ESCALA DE VOLUNTÁRIOS*\n\n`;
+
+    displayedServices.forEach(service => {
+        const dateStr = new Date(service.date).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+        message += `*${dateStr}* - ${service.title}\n`;
+        
+        if (service.assignments.length === 0) {
+            message += `_Sem voluntários escalados_\n`;
+        } else {
+            const grouped: Record<string, string[]> = {};
+            service.assignments.forEach(a => {
+                const name = a.teamId ? `[Equipe] ${getTeamName(a.teamId)}` : (a.volunteerId ? getVolunteerName(a.volunteerId) : '?');
+                const statusIcon = a.status === 'confirmed' ? '✅' : a.status === 'declined' ? '❌' : '⏳';
+                
+                if (!grouped[a.role]) grouped[a.role] = [];
+                grouped[a.role].push(`${name} ${statusIcon}`);
+            });
+
+            for (const [role, names] of Object.entries(grouped)) {
+                message += `▪ ${role}: ${names.join(', ')}\n`;
+            }
+        }
+        message += `\n`; 
+    });
+
+    const encoded = encodeURIComponent(message);
+    window.open(`https://wa.me/?text=${encoded}`, '_blank');
+  };
+
   const availableEntities = assignmentType === 'volunteer' 
     ? (selectedRole ? volunteers.filter(v => v.roles.includes(selectedRole)) : volunteers)
     : teams; 
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 no-print">
         <div>
           <h2 className="text-2xl font-bold text-brand-secondary">Escalas e Eventos</h2>
           
@@ -347,27 +439,47 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
           </div>
         </div>
 
-        {!readOnly && (
-          <button
-            onClick={() => setIsAddingService(!isAddingService)}
-            className="bg-brand-primary hover:bg-brand-primary-hover text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors shadow-sm self-end md:self-auto"
-          >
-            <Plus size={20} />
-            <span className="hidden sm:inline">Novo Evento</span>
-            <span className="sm:hidden">Novo</span>
-          </button>
-        )}
+        <div className="flex items-center gap-2 self-end md:self-auto">
+             {displayedServices.length > 0 && (
+                <div className="flex mr-2 bg-white rounded-lg border border-brand-muted/20 shadow-sm overflow-hidden">
+                    <button 
+                        onClick={handleWhatsAppShare}
+                        className="p-2 text-green-600 hover:bg-green-50 border-r border-brand-muted/20"
+                        title="Compartilhar no WhatsApp"
+                    >
+                        <MessageCircle size={20} />
+                    </button>
+                    <button 
+                        onClick={handlePrint}
+                        className="p-2 text-gray-600 hover:bg-gray-50"
+                        title="Imprimir Escala (PDF)"
+                    >
+                        <Printer size={20} />
+                    </button>
+                </div>
+             )}
+
+            {!readOnly && (
+            <button
+                onClick={() => setIsAddingService(!isAddingService)}
+                className="bg-brand-primary hover:bg-brand-primary-hover text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors shadow-sm"
+            >
+                <Plus size={20} />
+                <span className="hidden sm:inline">Novo Evento</span>
+                <span className="sm:hidden">Novo</span>
+            </button>
+            )}
+        </div>
       </div>
 
       {isAddingService && !readOnly && (
-        <div className="bg-white p-6 rounded-xl border border-brand-accent/50 shadow-md animate-fade-in-down">
+        <div className="bg-white p-6 rounded-xl border border-brand-accent/50 shadow-md animate-fade-in-down no-print">
            <h3 className="text-lg font-semibold mb-4 text-brand-primary">Criar Novo Culto/Evento</h3>
            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                <div>
                    <label className="block text-sm font-medium text-brand-secondary mb-1">Data Inicial</label>
                    <input type="date" value={newServiceDate} onChange={(e) => setNewServiceDate(e.target.value)} className="w-full border border-brand-muted/30 rounded-lg px-4 py-2 bg-brand-bg/50"/>
                    
-                   {/* Checkbox Recorrência */}
                    <div className="mt-3 flex items-center gap-2">
                        <input 
                          type="checkbox" 
@@ -396,7 +508,6 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
                    </select>
                </div>
 
-               {/* Campo Condicional: Data Fim da Recorrência */}
                {isRecurring && (
                    <div className={`bg-brand-accent/10 p-3 rounded-lg border animate-fade-in ${isDateRangeInvalid || isDateLimitExceeded ? 'border-red-300 bg-red-50' : 'border-brand-accent/30'}`}>
                        <label className="block text-sm font-medium text-brand-secondary mb-1">
@@ -451,9 +562,15 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-6">
+      {/* PRINT HEADER ONLY */}
+      <div className="hidden print:block mb-6">
+          <h1 className="text-3xl font-bold text-gray-900">Escala de Voluntários</h1>
+          <p className="text-gray-600">IASD Bosque • Gerado em {new Date().toLocaleDateString()}</p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 print:gap-4 print:block">
         {displayedServices.length === 0 && (
-          <div className="text-center py-12 bg-white rounded-xl border border-brand-muted/20 border-dashed">
+          <div className="text-center py-12 bg-white rounded-xl border border-brand-muted/20 border-dashed no-print">
             <div className="text-brand-muted/50 mb-3 flex justify-center">
               {viewFilter === 'mine' ? <UserCheck size={48} /> : <CalendarIcon size={48} />}
             </div>
@@ -472,25 +589,34 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
 
         {displayedServices.map((service) => {
           const styles = getEventStyles(service.eventTypeId);
-          const isMeAssigned = currentUserId && service.assignments.some(a => {
+          const isMeAssignedToService = currentUserId && service.assignments.some(a => {
               if (a.volunteerId === currentUserId) return true;
               if (a.teamId) {
                   return teams.find(t => t.id === a.teamId)?.memberIds.includes(currentUserId || '');
               }
               return false;
           });
+
+          // GROUPING LOGIC: Group assignments by Role (Ministry)
+          const groupedAssignments: Record<string, Array<{ assignment: Assignment, index: number }>> = {};
+          service.assignments.forEach((assignment, index) => {
+              if (!groupedAssignments[assignment.role]) {
+                  groupedAssignments[assignment.role] = [];
+              }
+              groupedAssignments[assignment.role].push({ assignment, index });
+          });
           
           return (
-            <div key={service.id} className={`bg-white rounded-xl shadow-sm border overflow-visible transition-all relative overflow-hidden ${isMeAssigned ? 'border-brand-primary ring-1 ring-brand-primary shadow-md' : 'border-brand-muted/20 hover:border-brand-accent/50'}`}>
-              <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${styles.borderColor}`}></div>
-              <div className={`${styles.headerBg} px-6 py-4 border-b border-brand-muted/10 flex justify-between items-center ml-1.5`}>
+            <div key={service.id} className={`bg-white rounded-xl shadow-sm border overflow-visible transition-all relative break-inside-avoid print:shadow-none print:border-gray-300 print:mb-4 ${isMeAssignedToService ? 'border-brand-primary ring-1 ring-brand-primary shadow-md print:ring-0' : 'border-brand-muted/20 hover:border-brand-accent/50'}`}>
+              <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${styles.borderColor} print:bg-gray-400`}></div>
+              <div className={`${styles.headerBg} px-6 py-4 border-b border-brand-muted/10 flex justify-between items-center ml-1.5 print:bg-gray-50 print:py-2`}>
                 <div className="flex items-center gap-4">
-                  <div className={`${styles.iconBg} ${styles.iconColor} p-2.5 rounded-lg`}>
+                  <div className={`${styles.iconBg} ${styles.iconColor} p-2.5 rounded-lg no-print`}>
                     <CalendarIcon size={24} />
                   </div>
                   <div>
-                    <h3 className={`font-semibold ${styles.titleColor} text-lg`}>{service.title}</h3>
-                    <div className={`flex items-center ${styles.dateColor} text-sm gap-3 mt-0.5`}>
+                    <h3 className={`font-semibold ${styles.titleColor} text-lg print:text-black`}>{service.title}</h3>
+                    <div className={`flex items-center ${styles.dateColor} text-sm gap-3 mt-0.5 print:text-gray-600`}>
                       <span className="flex items-center gap-1">
                         {new Date(service.date).toLocaleDateString('pt-BR', { timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
                       </span>
@@ -498,27 +624,27 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
                   </div>
                 </div>
                 {!readOnly && (
-                    <button onClick={() => onRemoveService(service.id)} className="text-brand-muted hover:text-red-600 p-2 rounded-full hover:bg-red-50">
+                    <button onClick={() => onRemoveService(service.id)} className="text-brand-muted hover:text-red-600 p-2 rounded-full hover:bg-red-50 no-print">
                         <Trash2 size={20} />
                     </button>
                 )}
               </div>
               
-              <div className="p-6 ml-1.5">
-                <div className="flex justify-between items-center mb-4">
+              <div className="p-6 ml-1.5 print:p-4">
+                <div className="flex justify-between items-center mb-4 print:mb-2">
                   <h4 className="text-xs font-semibold text-brand-muted uppercase tracking-wider flex items-center gap-2">
                     <Users size={14} />
                     Escala de Voluntários
                   </h4>
                   {!readOnly && addingAssignmentTo !== service.id && selectableRoles.length > 0 && (
-                    <button onClick={() => setAddingAssignmentTo(service.id)} className="text-xs flex items-center gap-1 text-brand-primary bg-brand-accent/20 px-2 py-1 rounded">
+                    <button onClick={() => setAddingAssignmentTo(service.id)} className="text-xs flex items-center gap-1 text-brand-primary bg-brand-accent/20 px-2 py-1 rounded no-print">
                       <Plus size={12} /> Adicionar
                     </button>
                   )}
                 </div>
 
                 {!readOnly && addingAssignmentTo === service.id && (
-                  <div className="mb-4 bg-gray-50 p-4 rounded-lg border border-brand-muted/20 flex flex-col gap-3 shadow-inner">
+                  <div className="mb-4 bg-gray-50 p-4 rounded-lg border border-brand-muted/20 flex flex-col gap-3 shadow-inner no-print">
                       <div className="flex gap-4 border-b border-gray-200 pb-2 mb-1">
                          <label className="flex items-center gap-2 cursor-pointer text-sm">
                              <input type="radio" checked={assignmentType === 'volunteer'} onChange={() => {setAssignmentType('volunteer'); setSelectedEntityId('');}} className="text-brand-primary focus:ring-brand-primary"/>
@@ -571,65 +697,159 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
                   </div>
                 )}
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                  {service.assignments.map((assignment, idx) => {
-                      if (assignment.teamId) {
-                          const team = teams.find(t => t.id === assignment.teamId);
-                          const members = getTeamMembers(assignment.teamId);
-                          const userIsInTeam = currentUserId && team?.memberIds.includes(currentUserId);
-                          
-                          return (
-                              <div key={idx} className={`group relative flex flex-col p-3 rounded-lg border transition-colors ${userIsInTeam ? 'bg-brand-primary/10 border-brand-primary shadow-lg ring-1 ring-brand-primary' : 'bg-brand-bg border-brand-muted/10'}`}>
-                                <div className="flex items-center gap-1.5 mb-2 text-brand-primary border-b border-brand-primary/10 pb-2">
-                                    <Shield size={14} />
-                                    <span className="text-xs font-bold uppercase tracking-wide">Equipe</span>
-                                    {getMinistryIcon(assignment.role)}
-                                    <span className="text-xs font-medium ml-auto">{assignment.role}</span>
-                                </div>
-                                <div className="mb-2">
-                                     <span className={`font-bold block ${userIsInTeam ? 'text-brand-primary' : 'text-brand-secondary'}`}>
-                                        {getTeamName(assignment.teamId)}
-                                     </span>
-                                </div>
-                                <div className="space-y-1">
-                                    {members.map(m => (
-                                        <div key={m.id} className="text-xs flex items-center gap-1 text-brand-secondary/80">
-                                            <div className={`w-1 h-1 rounded-full ${m.id === currentUserId ? 'bg-brand-primary' : 'bg-brand-muted'}`}></div>
-                                            <span className={m.id === currentUserId ? 'font-bold' : ''}>
-                                                {m.name} {m.id === currentUserId && '(Você)'}
-                                            </span>
-                                        </div>
-                                    ))}
-                                </div>
-                                {canManageRole(assignment.role) && (
-                                    <button onClick={() => handleRemoveAssignment(service.id, idx)} className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 text-red-500 bg-white rounded-full p-0.5 shadow-sm">
-                                        <X size={12} />
-                                    </button>
-                                )}
-                              </div>
-                          );
-                      } else {
-                          const isMe = assignment.volunteerId === currentUserId;
-                          return (
-                            <div key={idx} className={`group relative flex flex-col p-3 rounded-lg border transition-colors ${isMe ? 'bg-brand-primary text-white border-brand-primary shadow-lg scale-105' : 'bg-brand-bg border-brand-muted/10'}`}>
-                                <div className={`flex items-center gap-1.5 mb-1 ${isMe ? 'text-brand-accent' : 'text-brand-primary'}`}>
-                                    {getMinistryIcon(assignment.role)}
-                                    <span className="text-xs font-medium">{assignment.role}</span>
-                                </div>
-                                <span className={`font-medium ${isMe ? 'text-white' : 'text-brand-secondary'}`}>
-                                    {getVolunteerName(assignment.volunteerId!)} {isMe && "(Você)"}
-                                </span>
-                                {canManageRole(assignment.role) && (
-                                    <button onClick={() => handleRemoveAssignment(service.id, idx)} className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 text-red-500 bg-white rounded-full p-0.5">
-                                        <X size={12} />
-                                    </button>
-                                )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 print:grid-cols-3">
+                  {Object.entries(groupedAssignments).map(([role, items]) => {
+                      const isMeInGroup = items.some(({ assignment }) => 
+                          (assignment.volunteerId === currentUserId) || 
+                          (assignment.teamId && teams.find(t => t.id === assignment.teamId)?.memberIds.includes(currentUserId || ''))
+                      );
+
+                      // Card visual style based on whether I'm in this group
+                      const cardStyle = isMeInGroup 
+                          ? 'bg-brand-accent/10 border-brand-accent ring-1 ring-brand-accent/50' 
+                          : 'bg-white border-brand-muted/20';
+
+                      return (
+                        <div key={role} className={`rounded-lg border p-3 flex flex-col h-full ${cardStyle} print:border-gray-200 print:bg-transparent print:p-0 print:shadow-none`}>
+                            {/* Group Header */}
+                            <div className="flex items-center gap-2 mb-2 pb-2 border-b border-black/5 text-brand-primary font-medium text-sm">
+                                {getMinistryIcon(role)}
+                                <span>{role}</span>
+                                {isMeInGroup && <div className="ml-auto w-2 h-2 rounded-full bg-brand-primary animate-pulse no-print"></div>}
                             </div>
-                          )
-                      }
+                            
+                            {/* List of Volunteers in this Role */}
+                            <div className="flex flex-col flex-1">
+                                {items.map(({ assignment, index }) => {
+                                    const isMe = assignment.volunteerId === currentUserId;
+                                    const team = assignment.teamId ? teams.find(t => t.id === assignment.teamId) : null;
+                                    const isMyTeam = team?.memberIds.includes(currentUserId || '');
+                                    
+                                    // RSVP and Actions Logic (per individual)
+                                    const showRSVP = isMe || isMyTeam;
+                                    const isUpdatingThis = updatingAssignment?.serviceId === service.id && updatingAssignment?.assignmentIndex === index;
+                                    const isDecliningThis = decliningAssignment?.serviceId === service.id && decliningAssignment?.assignmentIndex === index;
+                                    
+                                    const displayName = team ? team.name : getVolunteerName(assignment.volunteerId!);
+
+                                    return (
+                                        <div key={index} className="relative group/item py-2 border-b border-gray-100 last:border-0 border-dashed">
+                                            {/* Container for content */}
+                                            <div className={`flex items-start justify-between gap-2 transition-opacity ${isDecliningThis ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+                                                
+                                                {/* Left: Info */}
+                                                <div className="flex-1 min-w-0 pr-1">
+                                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                                        {team && <Shield size={12} className="text-brand-secondary shrink-0" />}
+                                                        <span className={`text-sm font-medium leading-tight ${isMe || isMyTeam ? 'text-brand-primary' : 'text-brand-secondary'}`}>
+                                                            {displayName}
+                                                        </span>
+                                                        {(isMe || isMyTeam) && <span className="text-[10px] font-normal text-brand-muted no-print shrink-0">(Você)</span>}
+                                                    </div>
+                                                    
+                                                    {/* Status Text / Decline Reason */}
+                                                    {assignment.status === 'declined' && assignment.declineReason ? (
+                                                        <p className="text-[10px] text-red-600 mt-1 leading-tight border-l-2 border-red-300 pl-1 break-words">
+                                                            "{assignment.declineReason}"
+                                                        </p>
+                                                    ) : (
+                                                        team && (
+                                                            <p className="text-[10px] text-brand-muted mt-0.5 truncate no-print">
+                                                                {team.memberIds.length} membros
+                                                            </p>
+                                                        )
+                                                    )}
+                                                </div>
+
+                                                {/* Right: Actions / Status */}
+                                                <div className="flex items-center gap-1 shrink-0 h-full pt-0.5 no-print">
+                                                    {isUpdatingThis ? (
+                                                        <Loader2 size={14} className="animate-spin text-brand-primary" />
+                                                    ) : (
+                                                        <>
+                                                            {/* RSVP Actions (Beside Name) */}
+                                                            {showRSVP && (!assignment.status || assignment.status === 'pending') && !isDecliningThis ? (
+                                                                <div className="flex items-center gap-1 bg-gray-50 p-0.5 rounded-lg border border-gray-100">
+                                                                     <button 
+                                                                        type="button"
+                                                                        onClick={(e) => handleInitiateRSVP(e, service.id, index, 'confirmed')}
+                                                                        className="p-1 rounded hover:bg-green-100 text-green-700 hover:shadow-sm transition-all"
+                                                                        title="Confirmar"
+                                                                    >
+                                                                        <CheckCircle2 size={16}/>
+                                                                    </button>
+                                                                    <button 
+                                                                        type="button"
+                                                                        onClick={(e) => handleInitiateRSVP(e, service.id, index, 'declined')}
+                                                                        className="p-1 rounded hover:bg-red-100 text-red-700 hover:shadow-sm transition-all"
+                                                                        title="Recusar"
+                                                                    >
+                                                                        <XCircle size={16}/>
+                                                                    </button>
+                                                                </div>
+                                                            ) : (
+                                                                /* Status Icons if decided */
+                                                                <>
+                                                                    {assignment.status === 'confirmed' && <CheckCircle2 size={16} className="text-green-600" />}
+                                                                    {assignment.status === 'declined' && <XCircle size={16} className="text-red-600" />}
+                                                                    {(!assignment.status || assignment.status === 'pending') && <Clock size={16} className="text-brand-muted/50" />}
+                                                                </>
+                                                            )}
+                                                            
+                                                            {/* Change Decision Button (Small 'X' to reset, if needed in future, currently just Remove) */}
+                                                            {canManageRole(role) && !isDecliningThis && (
+                                                                <button 
+                                                                    onClick={(e) => { e.stopPropagation(); handleRemoveAssignment(service.id, index); }}
+                                                                    className="ml-1 p-1 text-brand-muted hover:text-red-500 rounded opacity-0 group-hover/item:opacity-100 transition-opacity"
+                                                                    title="Remover da escala"
+                                                                >
+                                                                    <Trash2 size={14} />
+                                                                </button>
+                                                            )}
+                                                        </>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* EXPANDED Decline Reason Form */}
+                                            {isDecliningThis && (
+                                                <div className="absolute inset-0 z-20 bg-white flex flex-col justify-center animate-fade-in">
+                                                    <div className="flex gap-2 items-start h-full w-full">
+                                                        <textarea 
+                                                            className="flex-1 h-full min-h-[60px] text-xs border-2 border-red-100 rounded-md p-2 focus:ring-0 focus:border-red-400 resize-none bg-white text-gray-900 leading-tight"
+                                                            placeholder="Motivo da recusa..."
+                                                            autoFocus
+                                                            value={declineReasonText}
+                                                            onChange={e => setDeclineReasonText(e.target.value)}
+                                                            onClick={e => e.stopPropagation()}
+                                                        />
+                                                        <div className="flex flex-col gap-1 h-full justify-center shrink-0">
+                                                            <button 
+                                                                onClick={handleConfirmDecline}
+                                                                className="px-2 py-1.5 text-[10px] font-bold text-white bg-red-600 rounded hover:bg-red-700 shadow-sm transition-colors flex items-center justify-center"
+                                                            >
+                                                                Confirmar
+                                                            </button>
+                                                            <button 
+                                                                onClick={handleCancelDecline}
+                                                                className="px-2 py-1 text-[10px] font-medium text-gray-600 bg-gray-50 border border-gray-200 rounded hover:bg-gray-100 transition-colors"
+                                                            >
+                                                                Cancelar
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                      );
                   })}
+                  
                   {service.assignments.length === 0 && !addingAssignmentTo && (
-                     <div className="text-brand-muted text-sm italic col-span-full py-2 bg-brand-bg/30 rounded border border-dashed border-brand-muted/20 text-center">
+                     <div className="text-brand-muted text-sm italic col-span-full py-2 bg-brand-bg/30 rounded border border-dashed border-brand-muted/20 text-center no-print">
                        Nenhum voluntário escalado.
                      </div>
                   )}

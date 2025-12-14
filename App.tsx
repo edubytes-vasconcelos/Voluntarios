@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Volunteer, ServiceEvent, Ministry, EventType, AccessLevel, Team } from './types';
+import { Volunteer, ServiceEvent, Ministry, EventType, AccessLevel, Team, AuditLogEntry } from './types';
 import { INITIAL_VOLUNTEERS, INITIAL_SERVICES, INITIAL_MINISTRIES, INITIAL_EVENT_TYPES } from './constants';
 import VolunteerList from './components/VolunteerList';
 import ScheduleView from './components/ScheduleView';
@@ -201,6 +201,20 @@ const App: React.FC = () => {
     }
   };
 
+  const handleLogAction = async (action: string, resource: string, resourceId: string, details: any) => {
+     try {
+         await db.addAuditLog({
+             user_email: session?.user?.email,
+             action,
+             resource,
+             resource_id: resourceId,
+             details
+         });
+     } catch (e) {
+         console.error("Erro ao registrar log", e);
+     }
+  };
+
   const handleAddMinistry = async (newMinistry: Ministry) => {
     try {
       await db.addMinistry(newMinistry);
@@ -327,7 +341,7 @@ const App: React.FC = () => {
       
       {/* --- DESKTOP SIDEBAR (Hidden on Mobile) --- */}
       <aside className={`
-        hidden md:flex flex-col w-64 bg-white border-r border-brand-muted/20 relative z-30 transition-all duration-300 ease-in-out
+        hidden md:flex flex-col w-64 bg-white border-r border-brand-muted/20 relative z-30 transition-all duration-300 ease-in-out print:hidden
       `}>
         <div className="p-6 flex items-center gap-3 border-b border-brand-muted/10 h-20">
             <div className="text-brand-primary p-1 rounded-lg shrink-0">
@@ -380,10 +394,10 @@ const App: React.FC = () => {
 
 
       {/* --- MAIN CONTENT WRAPPER --- */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden relative">
+      <div className="flex-1 flex flex-col h-full overflow-hidden relative print:h-auto print:overflow-visible">
       
           {/* Mobile Header (Simplified) */}
-          <header className="md:hidden bg-white border-b border-brand-muted/20 h-16 shrink-0 flex items-center justify-between px-4 shadow-sm z-20">
+          <header className="md:hidden bg-white border-b border-brand-muted/20 h-16 shrink-0 flex items-center justify-between px-4 shadow-sm z-20 print:hidden">
              <div className="flex items-center gap-3">
                   <div className="text-brand-primary"><IASDLogo className="w-8 h-8" /></div>
                   <div>
@@ -397,12 +411,12 @@ const App: React.FC = () => {
           </header>
 
           {/* Main Scrollable Area */}
-          <main className="flex-1 overflow-y-auto p-4 md:p-8 pb-24 md:pb-8"> 
-            <div className="max-w-5xl mx-auto">
+          <main className="flex-1 overflow-y-auto p-4 md:p-8 pb-24 md:pb-8 print:p-0 print:overflow-visible"> 
+            <div className="max-w-5xl mx-auto print:max-w-none">
                 
                 {/* Volunteer Notification Banner */}
                 {myNextAssignment && (
-                    <div className="mb-6 bg-brand-accent/20 border border-brand-accent rounded-xl p-4 flex items-center gap-4 animate-fade-in">
+                    <div className="mb-6 bg-brand-accent/20 border border-brand-accent rounded-xl p-4 flex items-center gap-4 animate-fade-in print:hidden">
                         <div className="bg-brand-primary text-white p-3 rounded-full">
                             <Bell size={20} />
                         </div>
@@ -426,6 +440,7 @@ const App: React.FC = () => {
                       onAddService={handleAddService}
                       onUpdateService={handleUpdateService}
                       onRemoveService={handleRemoveService}
+                      onLogAction={handleLogAction}
                       readOnly={!canManageSchedule}
                       currentUserId={userProfile?.id}
                     />
@@ -481,7 +496,7 @@ const App: React.FC = () => {
           </main>
 
           {/* --- MOBILE BOTTOM NAVIGATION --- */}
-          <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-brand-muted/20 h-16 flex items-center justify-around px-2 z-50 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+          <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-brand-muted/20 h-16 flex items-center justify-around px-2 z-50 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] print:hidden">
               <NavItem isMobile={true} id="schedule" icon={Calendar} label="Escalas" onClick={() => handleNavClick('schedule')} />
               
               {canManageVolunteers && (

@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="pt-BR">
   <head>
@@ -27,6 +28,31 @@
     <style>
       body {
         font-family: 'Inter', sans-serif;
+      }
+      
+      /* CSS CRÍTICO PARA IMPRESSÃO */
+      @media print {
+        body, #root, main, div {
+          height: auto !important;
+          overflow: visible !important;
+          position: static !important;
+        }
+        
+        /* Esconder elementos de navegação e botões */
+        .no-print {
+          display: none !important;
+        }
+
+        /* Garantir que cores de fundo apareçam (ex: status) */
+        * {
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+        
+        /* Quebra de página inteligente para os cards */
+        .break-inside-avoid {
+          page-break-inside: avoid;
+        }
       }
     </style>
   <script type="importmap">
