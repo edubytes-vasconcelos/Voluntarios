@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { ServiceEvent, Volunteer, Assignment, Ministry, EventType, Team } from '../types';
 import { Calendar as CalendarIcon, Users, Trash2, Plus, X, Save, BookOpen, AlertCircle, Filter, UserCheck, Shield } from 'lucide-react';
 import { AVAILABLE_ICONS } from '../constants';
@@ -29,21 +29,61 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
   readOnly = false,
   currentUserId
 }) => {
+  // --- PERMISSION & INITIALIZATION LOGIC ---
+  const currentUser = currentUserId ? volunteers.find(v => v.id === currentUserId) : null;
+  
+  // Tratamento robusto: se accessLevel for undefined, assume 'volunteer'
+  const userAccessLevel = currentUser?.accessLevel || 'volunteer';
+  
+  // Inicializa o filtro com base no nível de acesso
+  const [viewFilter, setViewFilter] = useState<'all' | 'mine'>(() => {
+    return userAccessLevel === 'volunteer' ? 'mine' : 'all';
+  });
+
+  // Atualiza o filtro se o usuário mudar (ex: logout/login com outro usuário)
+  useEffect(() => {
+    if (userAccessLevel === 'volunteer') {
+      setViewFilter('mine');
+    } else {
+      setViewFilter('all');
+    }
+  }, [currentUserId]); // Dependência apenas no ID do usuário para preservar alternância manual durante a sessão
+
   const [isAddingService, setIsAddingService] = useState(false);
   const [newServiceDate, setNewServiceDate] = useState('');
   const [selectedEventTypeId, setSelectedEventTypeId] = useState('');
   const [newServiceTitle, setNewServiceTitle] = useState('');
   
-  // Filter State: 'all' or 'mine'
-  const [viewFilter, setViewFilter] = useState<'all' | 'mine'>('all');
-
   // State for manual assignment
   const [addingAssignmentTo, setAddingAssignmentTo] = useState<string | null>(null);
   const [assignmentType, setAssignmentType] = useState<'volunteer' | 'team'>('volunteer'); // New: Switch between volunteer and team
   const [selectedRole, setSelectedRole] = useState('');
   const [selectedEntityId, setSelectedEntityId] = useState(''); // ID of Volunteer OR Team
 
-  const roles = ministries.map(m => m.name);
+  const userRoles = currentUser?.roles || [];
+  const isAdmin = userAccessLevel === 'admin';
+  const isLeader = userAccessLevel === 'leader';
+
+  // Define quais ministérios aparecem no dropdown para seleção
+  const selectableRoles = useMemo(() => {
+    const allRoles = ministries.map(m => m.name);
+    if (readOnly) return [];
+    if (isAdmin) return allRoles;
+    if (isLeader) {
+        // Líder só vê os ministérios que ele lidera/participa
+        return allRoles.filter(role => userRoles.includes(role));
+    }
+    return []; // Voluntários comuns não gerenciam escala
+  }, [ministries, readOnly, isAdmin, isLeader, userRoles]);
+
+  // Função para checar se pode deletar uma atribuição específica
+  const canManageRole = (roleToCheck: string) => {
+      if (readOnly) return false;
+      if (isAdmin) return true;
+      if (isLeader) return userRoles.includes(roleToCheck);
+      return false;
+  };
+  // --- PERMISSION LOGIC END ---
 
   const getVolunteerName = (id: string) => volunteers.find(v => v.id === id)?.name || 'Desconhecido';
   const getTeamName = (id: string) => teams.find(t => t.id === id)?.name || 'Equipe Desconhecida';
@@ -104,15 +144,49 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
   });
 
   const handleSaveService = () => {
-    if (!newServiceDate || !newServiceTitle.trim()) return;
+    // 1. Validações Básicas
+    if (!newServiceDate) {
+        alert('Selecione uma data.');
+        return;
+    }
+
+    let titleToSave = newServiceTitle;
+    if (selectedEventTypeId && selectedEventTypeId !== 'custom') {
+         const type = eventTypes.find(t => t.id === selectedEventTypeId);
+         if (type) titleToSave = type.name;
+    }
+
+    if (!titleToSave.trim()) {
+        alert('Informe o nome do evento.');
+        return;
+    }
+
+    // 2. Validação de Duplicidade
+    if (selectedEventTypeId && selectedEventTypeId !== 'custom') {
+      const alreadyExists = services.some(s => {
+        const existingDate = s.date.split('T')[0]; 
+        const newDate = newServiceDate; 
+        
+        return existingDate === newDate && s.eventTypeId === selectedEventTypeId;
+      });
+
+      if (alreadyExists) {
+        alert('ATENÇÃO: Já existe um evento deste tipo cadastrado nesta data!\n\nNão é possível criar eventos duplicados.');
+        return; 
+      }
+    }
+
+    // 3. Salvar
     const newService: ServiceEvent = {
       id: `manual-${Date.now()}`,
       date: newServiceDate,
-      title: newServiceTitle,
+      title: titleToSave,
       eventTypeId: selectedEventTypeId || undefined,
       assignments: []
     };
     onAddService(newService);
+    
+    // Limpar
     setNewServiceDate('');
     setNewServiceTitle('');
     setSelectedEventTypeId('');
@@ -151,7 +225,7 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
 
   const availableEntities = assignmentType === 'volunteer' 
     ? (selectedRole ? volunteers.filter(v => v.roles.includes(selectedRole)) : volunteers)
-    : teams; // Show all teams for now, could filter by role if teams had roles
+    : teams; 
 
   return (
     <div className="space-y-6">
@@ -185,6 +259,7 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
           </div>
         </div>
 
+        {/* Somente exibe botão de Novo Evento se não for ReadOnly (Admin/Líder) */}
         {!readOnly && (
           <button
             onClick={() => setIsAddingService(!isAddingService)}
@@ -225,8 +300,13 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
                )}
            </div>
            <div className="flex justify-end gap-3 mt-4">
-               <button onClick={() => setIsAddingService(false)} className="px-4 py-2 text-brand-muted">Cancelar</button>
-               <button onClick={handleSaveService} disabled={!newServiceDate || !newServiceTitle} className="bg-brand-primary text-white px-6 py-2 rounded-lg">Salvar</button>
+               <button onClick={() => setIsAddingService(false)} className="px-4 py-2 text-brand-muted hover:text-brand-secondary">Cancelar</button>
+               <button 
+                 onClick={handleSaveService} 
+                 className="bg-brand-primary hover:bg-brand-primary-hover text-white px-6 py-2 rounded-lg transition-colors shadow-sm"
+               >
+                 Salvar
+               </button>
            </div>
         </div>
       )}
@@ -290,7 +370,8 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
                     <Users size={14} />
                     Escala de Voluntários
                   </h4>
-                  {!readOnly && addingAssignmentTo !== service.id && (
+                  {/* Botão ADICIONAR: Exibir apenas se não for ReadOnly E se houver ministérios disponíveis para este usuário gerenciar */}
+                  {!readOnly && addingAssignmentTo !== service.id && selectableRoles.length > 0 && (
                     <button onClick={() => setAddingAssignmentTo(service.id)} className="text-xs flex items-center gap-1 text-brand-primary bg-brand-accent/20 px-2 py-1 rounded">
                       <Plus size={12} /> Adicionar
                     </button>
@@ -320,7 +401,8 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
                             value={selectedRole}
                             >
                             <option value="" className="text-gray-500">Selecione...</option>
-                            {roles.map(r => <option key={r} value={r} className="text-gray-900">{r}</option>)}
+                            {/* Itera sobre selectableRoles (filtrado por permissão) ao invés de todos os ministérios */}
+                            {selectableRoles.map(r => <option key={r} value={r} className="text-gray-900">{r}</option>)}
                             </select>
                         </div>
                         
@@ -383,7 +465,8 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
                                         </div>
                                     ))}
                                 </div>
-                                {!readOnly && (
+                                {/* Exibe botão de remover APENAS se tiver permissão para este papel específico */}
+                                {canManageRole(assignment.role) && (
                                     <button onClick={() => handleRemoveAssignment(service.id, idx)} className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 text-red-500 bg-white rounded-full p-0.5 shadow-sm">
                                         <X size={12} />
                                     </button>
@@ -402,7 +485,8 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
                                 <span className={`font-medium ${isMe ? 'text-white' : 'text-brand-secondary'}`}>
                                     {getVolunteerName(assignment.volunteerId!)} {isMe && "(Você)"}
                                 </span>
-                                {!readOnly && (
+                                {/* Exibe botão de remover APENAS se tiver permissão para este papel específico */}
+                                {canManageRole(assignment.role) && (
                                     <button onClick={() => handleRemoveAssignment(service.id, idx)} className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 text-red-500 bg-white rounded-full p-0.5">
                                         <X size={12} />
                                     </button>
