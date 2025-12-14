@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { ServiceEvent, Volunteer, Assignment, Ministry, EventType, Team } from '../types';
-import { Calendar as CalendarIcon, Users, Trash2, Plus, X, Save, BookOpen, AlertCircle, Filter, UserCheck, Shield } from 'lucide-react';
+import { Calendar as CalendarIcon, Users, Trash2, Plus, X, Save, BookOpen, AlertCircle, Filter, UserCheck, Shield, Repeat } from 'lucide-react';
 import { AVAILABLE_ICONS } from '../constants';
 
 interface ScheduleViewProps {
@@ -47,43 +47,50 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
     } else {
       setViewFilter('all');
     }
-  }, [currentUserId]); // Dependência apenas no ID do usuário para preservar alternância manual durante a sessão
+  }, [currentUserId]); 
 
   const [isAddingService, setIsAddingService] = useState(false);
   const [newServiceDate, setNewServiceDate] = useState('');
   const [selectedEventTypeId, setSelectedEventTypeId] = useState('');
   const [newServiceTitle, setNewServiceTitle] = useState('');
+
+  // --- RECURRENCE STATE ---
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [recurringEndDate, setRecurringEndDate] = useState('');
   
+  // Calculate max date (3 months from today) for the input attribute
+  const maxRecurDateStr = useMemo(() => {
+      const d = new Date();
+      d.setMonth(d.getMonth() + 3);
+      return d.toISOString().split('T')[0];
+  }, []);
+
   // State for manual assignment
   const [addingAssignmentTo, setAddingAssignmentTo] = useState<string | null>(null);
-  const [assignmentType, setAssignmentType] = useState<'volunteer' | 'team'>('volunteer'); // New: Switch between volunteer and team
+  const [assignmentType, setAssignmentType] = useState<'volunteer' | 'team'>('volunteer'); 
   const [selectedRole, setSelectedRole] = useState('');
-  const [selectedEntityId, setSelectedEntityId] = useState(''); // ID of Volunteer OR Team
+  const [selectedEntityId, setSelectedEntityId] = useState(''); 
 
   const userRoles = currentUser?.roles || [];
   const isAdmin = userAccessLevel === 'admin';
   const isLeader = userAccessLevel === 'leader';
 
-  // Define quais ministérios aparecem no dropdown para seleção
   const selectableRoles = useMemo(() => {
     const allRoles = ministries.map(m => m.name);
     if (readOnly) return [];
     if (isAdmin) return allRoles;
     if (isLeader) {
-        // Líder só vê os ministérios que ele lidera/participa
         return allRoles.filter(role => userRoles.includes(role));
     }
-    return []; // Voluntários comuns não gerenciam escala
+    return []; 
   }, [ministries, readOnly, isAdmin, isLeader, userRoles]);
 
-  // Função para checar se pode deletar uma atribuição específica
   const canManageRole = (roleToCheck: string) => {
       if (readOnly) return false;
       if (isAdmin) return true;
       if (isLeader) return userRoles.includes(roleToCheck);
       return false;
   };
-  // --- PERMISSION LOGIC END ---
 
   const getVolunteerName = (id: string) => volunteers.find(v => v.id === id)?.name || 'Desconhecido';
   const getTeamName = (id: string) => teams.find(t => t.id === id)?.name || 'Equipe Desconhecida';
@@ -126,13 +133,10 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
 
   const sortedServices = [...services].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-  // Filter Logic Updated for Teams
   const displayedServices = sortedServices.filter(service => {
     if (viewFilter === 'mine') {
       return currentUserId && service.assignments.some(a => {
-          // Check if user is directly assigned
           if (a.volunteerId === currentUserId) return true;
-          // Check if user is in an assigned team
           if (a.teamId) {
               const team = teams.find(t => t.id === a.teamId);
               return team?.memberIds.includes(currentUserId);
@@ -143,10 +147,51 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
     return true;
   });
 
+  // Validação do formulário para habilitar/desabilitar botão
+  const isFormValid = useMemo(() => {
+      if (!newServiceDate) return false;
+      
+      // Valida Título
+      let titleOk = false;
+      if (selectedEventTypeId && selectedEventTypeId !== 'custom') {
+          titleOk = true; 
+      } else {
+          titleOk = newServiceTitle.trim().length > 0;
+      }
+      if (!titleOk) return false;
+
+      // Valida Recorrência
+      if (isRecurring) {
+          if (!recurringEndDate) return false;
+          // Garante que data fim é maior ou igual a data inicio
+          if (recurringEndDate < newServiceDate) return false;
+          // Garante que não excede 3 meses
+          if (recurringEndDate > maxRecurDateStr) return false;
+      }
+
+      return true;
+  }, [newServiceDate, selectedEventTypeId, newServiceTitle, isRecurring, recurringEndDate, maxRecurDateStr]);
+
+  // Verifica erro de intervalo de datas para feedback visual
+  const isDateRangeInvalid = useMemo(() => {
+      if (isRecurring && recurringEndDate && newServiceDate) {
+          return recurringEndDate < newServiceDate;
+      }
+      return false;
+  }, [isRecurring, recurringEndDate, newServiceDate]);
+
+  // Verifica erro de limite máximo
+  const isDateLimitExceeded = useMemo(() => {
+      if (isRecurring && recurringEndDate && maxRecurDateStr) {
+          return recurringEndDate > maxRecurDateStr;
+      }
+      return false;
+  }, [isRecurring, recurringEndDate, maxRecurDateStr]);
+
   const handleSaveService = () => {
     // 1. Validações Básicas
     if (!newServiceDate) {
-        alert('Selecione uma data.');
+        alert('Selecione uma data inicial.');
         return;
     }
 
@@ -161,35 +206,78 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
         return;
     }
 
-    // 2. Validação de Duplicidade
-    if (selectedEventTypeId && selectedEventTypeId !== 'custom') {
-      const alreadyExists = services.some(s => {
-        const existingDate = s.date.split('T')[0]; 
-        const newDate = newServiceDate; 
+    // 2. Lógica de Geração de Datas (Recorrência)
+    const datesToCreate: string[] = [];
+    
+    if (isRecurring) {
+        if (!recurringEndDate) {
+            alert('Selecione a data final para a recorrência.');
+            return;
+        }
+        if (recurringEndDate < newServiceDate) {
+            alert('A data final deve ser posterior à data inicial.');
+            return;
+        }
+        if (recurringEndDate > maxRecurDateStr) {
+            alert('A data final excede o limite máximo permitido de 3 meses.');
+            return;
+        }
+
+        // Gera datas a cada 7 dias
+        // Usamos T12:00:00 para evitar problemas de fuso horário
+        let currentDateObj = new Date(newServiceDate + 'T12:00:00'); 
+        const endDateObj = new Date(recurringEndDate + 'T12:00:00');
         
-        return existingDate === newDate && s.eventTypeId === selectedEventTypeId;
+        while (currentDateObj <= endDateObj) {
+            datesToCreate.push(currentDateObj.toISOString().split('T')[0]);
+            currentDateObj.setDate(currentDateObj.getDate() + 7);
+        }
+    } else {
+        datesToCreate.push(newServiceDate);
+    }
+
+    // 3. Validação de Duplicidade em Lote
+    if (selectedEventTypeId && selectedEventTypeId !== 'custom') {
+      const conflicts = datesToCreate.filter(dateStr => {
+          return services.some(s => {
+              const existingDate = s.date.split('T')[0];
+              return existingDate === dateStr && s.eventTypeId === selectedEventTypeId;
+          });
       });
 
-      if (alreadyExists) {
-        alert('ATENÇÃO: Já existe um evento deste tipo cadastrado nesta data!\n\nNão é possível criar eventos duplicados.');
-        return; 
+      if (conflicts.length > 0) {
+        const confirm = window.confirm(
+            `ATENÇÃO: Existem ${conflicts.length} conflito(s) de eventos deste tipo nas datas selecionadas (Ex: ${conflicts[0]}).\n\nDeseja continuar e criar apenas os eventos que NÃO possuem conflito?`
+        );
+        if (!confirm) return;
+        
+        // Remove as datas conflitantes da lista de criação
+        const nonConflictingDates = datesToCreate.filter(d => !conflicts.includes(d));
+        datesToCreate.length = 0; // Limpa array original
+        datesToCreate.push(...nonConflictingDates);
       }
     }
 
-    // 3. Salvar
-    const newService: ServiceEvent = {
-      id: `manual-${Date.now()}`,
-      date: newServiceDate,
-      title: titleToSave,
-      eventTypeId: selectedEventTypeId || undefined,
-      assignments: []
-    };
-    onAddService(newService);
+    if (datesToCreate.length === 0) return;
+
+    // 4. Salvar (Loop)
+    datesToCreate.forEach((dateStr, index) => {
+        const newService: ServiceEvent = {
+          id: `manual-${Date.now()}-${index}`,
+          date: dateStr,
+          title: titleToSave,
+          eventTypeId: selectedEventTypeId || undefined,
+          assignments: []
+        };
+        onAddService(newService);
+    });
     
-    // Limpar
+    // Limpar e fechar
     setNewServiceDate('');
     setNewServiceTitle('');
     setSelectedEventTypeId('');
+    setIsRecurring(false);
+    setRecurringEndDate('');
     setIsAddingService(false);
   };
 
@@ -259,7 +347,6 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
           </div>
         </div>
 
-        {/* Somente exibe botão de Novo Evento se não for ReadOnly (Admin/Líder) */}
         {!readOnly && (
           <button
             onClick={() => setIsAddingService(!isAddingService)}
@@ -277,9 +364,25 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
            <h3 className="text-lg font-semibold mb-4 text-brand-primary">Criar Novo Culto/Evento</h3>
            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                <div>
-                   <label className="block text-sm font-medium text-brand-secondary mb-1">Data</label>
+                   <label className="block text-sm font-medium text-brand-secondary mb-1">Data Inicial</label>
                    <input type="date" value={newServiceDate} onChange={(e) => setNewServiceDate(e.target.value)} className="w-full border border-brand-muted/30 rounded-lg px-4 py-2 bg-brand-bg/50"/>
+                   
+                   {/* Checkbox Recorrência */}
+                   <div className="mt-3 flex items-center gap-2">
+                       <input 
+                         type="checkbox" 
+                         id="recurringCheck" 
+                         checked={isRecurring} 
+                         onChange={(e) => setIsRecurring(e.target.checked)}
+                         className="rounded text-brand-primary focus:ring-brand-primary h-4 w-4 cursor-pointer"
+                       />
+                       <label htmlFor="recurringCheck" className="text-sm text-brand-secondary flex items-center gap-1 cursor-pointer select-none">
+                           <Repeat size={14} />
+                           Repetir semanalmente
+                       </label>
+                   </div>
                </div>
+
                <div>
                    <label className="block text-sm font-medium text-brand-secondary mb-1">Tipo de Evento</label>
                    <select value={selectedEventTypeId} onChange={(e) => {
@@ -292,20 +395,57 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
                        <option value="custom">Personalizado</option>
                    </select>
                </div>
+
+               {/* Campo Condicional: Data Fim da Recorrência */}
+               {isRecurring && (
+                   <div className={`bg-brand-accent/10 p-3 rounded-lg border animate-fade-in ${isDateRangeInvalid || isDateLimitExceeded ? 'border-red-300 bg-red-50' : 'border-brand-accent/30'}`}>
+                       <label className="block text-sm font-medium text-brand-secondary mb-1">
+                           Repetir até (Data Fim)
+                           <span className="text-xs font-normal text-brand-muted ml-1">(Max: 3 meses)</span>
+                       </label>
+                       <input 
+                         type="date" 
+                         value={recurringEndDate} 
+                         max={maxRecurDateStr}
+                         onChange={(e) => setRecurringEndDate(e.target.value)} 
+                         className={`w-full border rounded-lg px-4 py-2 bg-white ${isDateRangeInvalid || isDateLimitExceeded ? 'border-red-300 text-red-900 focus:ring-red-500' : 'border-brand-muted/30'}`}
+                       />
+                       {isDateRangeInvalid && (
+                           <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
+                               <AlertCircle size={12} />
+                               A data final não pode ser anterior à data inicial.
+                           </p>
+                       )}
+                       {isDateLimitExceeded && (
+                           <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
+                               <AlertCircle size={12} />
+                               A data excede o limite permitido de 3 meses.
+                           </p>
+                       )}
+                   </div>
+               )}
+
                {(selectedEventTypeId === 'custom' || !selectedEventTypeId) && (
-                   <div className="md:col-span-2">
+                   <div className={isRecurring ? "md:col-span-1" : "md:col-span-2"}>
                        <label className="block text-sm font-medium text-brand-secondary mb-1">Nome</label>
                        <input type="text" value={newServiceTitle} onChange={(e) => setNewServiceTitle(e.target.value)} className="w-full border border-brand-muted/30 rounded-lg px-4 py-2 bg-brand-bg/50"/>
                    </div>
                )}
            </div>
-           <div className="flex justify-end gap-3 mt-4">
-               <button onClick={() => setIsAddingService(false)} className="px-4 py-2 text-brand-muted hover:text-brand-secondary">Cancelar</button>
+           <div className="flex justify-end gap-3 mt-4 pt-4 border-t border-brand-muted/10 relative z-10">
+               <button onClick={() => {
+                   setIsAddingService(false);
+                   setIsRecurring(false);
+                   setRecurringEndDate('');
+               }} className="px-4 py-2 text-brand-muted hover:text-brand-secondary">Cancelar</button>
                <button 
+                 type="button"
                  onClick={handleSaveService} 
-                 className="bg-brand-primary hover:bg-brand-primary-hover text-white px-6 py-2 rounded-lg transition-colors shadow-sm"
+                 disabled={!isFormValid}
+                 className="bg-brand-primary hover:bg-brand-primary-hover disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-6 py-2 rounded-lg transition-colors shadow-sm flex items-center gap-2 cursor-pointer"
                >
-                 Salvar
+                 <Save size={18} />
+                 {isRecurring ? 'Gerar Ocorrências' : 'Salvar Evento'}
                </button>
            </div>
         </div>
@@ -370,7 +510,6 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
                     <Users size={14} />
                     Escala de Voluntários
                   </h4>
-                  {/* Botão ADICIONAR: Exibir apenas se não for ReadOnly E se houver ministérios disponíveis para este usuário gerenciar */}
                   {!readOnly && addingAssignmentTo !== service.id && selectableRoles.length > 0 && (
                     <button onClick={() => setAddingAssignmentTo(service.id)} className="text-xs flex items-center gap-1 text-brand-primary bg-brand-accent/20 px-2 py-1 rounded">
                       <Plus size={12} /> Adicionar
@@ -380,7 +519,6 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
 
                 {!readOnly && addingAssignmentTo === service.id && (
                   <div className="mb-4 bg-gray-50 p-4 rounded-lg border border-brand-muted/20 flex flex-col gap-3 shadow-inner">
-                      {/* Controls Row */}
                       <div className="flex gap-4 border-b border-gray-200 pb-2 mb-1">
                          <label className="flex items-center gap-2 cursor-pointer text-sm">
                              <input type="radio" checked={assignmentType === 'volunteer'} onChange={() => {setAssignmentType('volunteer'); setSelectedEntityId('');}} className="text-brand-primary focus:ring-brand-primary"/>
@@ -401,7 +539,6 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
                             value={selectedRole}
                             >
                             <option value="" className="text-gray-500">Selecione...</option>
-                            {/* Itera sobre selectableRoles (filtrado por permissão) ao invés de todos os ministérios */}
                             {selectableRoles.map(r => <option key={r} value={r} className="text-gray-900">{r}</option>)}
                             </select>
                         </div>
@@ -437,7 +574,6 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                   {service.assignments.map((assignment, idx) => {
                       if (assignment.teamId) {
-                          // TEAM CARD
                           const team = teams.find(t => t.id === assignment.teamId);
                           const members = getTeamMembers(assignment.teamId);
                           const userIsInTeam = currentUserId && team?.memberIds.includes(currentUserId);
@@ -465,7 +601,6 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
                                         </div>
                                     ))}
                                 </div>
-                                {/* Exibe botão de remover APENAS se tiver permissão para este papel específico */}
                                 {canManageRole(assignment.role) && (
                                     <button onClick={() => handleRemoveAssignment(service.id, idx)} className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 text-red-500 bg-white rounded-full p-0.5 shadow-sm">
                                         <X size={12} />
@@ -474,7 +609,6 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
                               </div>
                           );
                       } else {
-                          // VOLUNTEER CARD (Existing logic)
                           const isMe = assignment.volunteerId === currentUserId;
                           return (
                             <div key={idx} className={`group relative flex flex-col p-3 rounded-lg border transition-colors ${isMe ? 'bg-brand-primary text-white border-brand-primary shadow-lg scale-105' : 'bg-brand-bg border-brand-muted/10'}`}>
@@ -485,7 +619,6 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
                                 <span className={`font-medium ${isMe ? 'text-white' : 'text-brand-secondary'}`}>
                                     {getVolunteerName(assignment.volunteerId!)} {isMe && "(Você)"}
                                 </span>
-                                {/* Exibe botão de remover APENAS se tiver permissão para este papel específico */}
                                 {canManageRole(assignment.role) && (
                                     <button onClick={() => handleRemoveAssignment(service.id, idx)} className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 text-red-500 bg-white rounded-full p-0.5">
                                         <X size={12} />
