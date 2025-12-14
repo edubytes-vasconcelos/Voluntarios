@@ -46,7 +46,7 @@ export const db = {
     return data.map((t: any) => ({
       id: t.id,
       name: t.name,
-      member_ids: t.member_ids || []
+      memberIds: t.member_ids || [] // Fixed: map snake_case DB column to camelCase Type property
     }));
   },
 

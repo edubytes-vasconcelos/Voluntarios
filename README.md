@@ -1,20 +1,61 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
 
-# Run and deploy your AI Studio app
+# Gestor de Escalas - IASD Bosque
 
-This contains everything you need to run your app locally.
+Sistema de gestão de voluntários e escalas inteligente, desenvolvido para otimizar a organização de cultos e eventos da igreja.
 
-View your app in AI Studio: https://ai.studio/apps/drive/1alRMQSSt-5YyUSe25V18s3q47IxSeVtM
+## 🛠 Tecnologias Utilizadas
 
-## Run Locally
+- **Frontend:** React 19, TypeScript, Vite
+- **Estilização:** Tailwind CSS
+- **Ícones:** Lucide React
+- **Backend (BaaS):** Supabase (PostgreSQL, Auth)
+- **Inteligência Artificial:** Google Gemini API (`gemini-2.5-flash`)
 
-**Prerequisites:**  Node.js
+## 🚀 Funcionalidades Principais
 
+### 1. Gestão de Voluntários
+- Cadastro completo com foto (upload ou webcam).
+- Definição de níveis de acesso: **Voluntário**, **Líder** e **Administrador**.
+- Atribuição de múltiplos ministérios/funções por pessoa.
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+### 2. Gestão de Equipes
+- Criação de grupos fixos de voluntários (ex: "Equipe de Louvor A").
+- Facilita a escalação em bloco.
+
+### 3. Escalas e Eventos (Schedule)
+- **Visualização:** Lista cronológica de eventos com cards detalhados.
+- **Criação:** Suporte a eventos recorrentes (ex: repetir semanalmente por 3 meses).
+- **Tipos de Evento:** Categorias personalizáveis com cores (ex: Culto Jovem, Escola Bíblica).
+- **IA Scheduler:** O sistema utiliza o Google Gemini para sugerir escalas automáticas baseadas na disponibilidade e nas funções dos voluntários cadastrados.
+
+### 4. Sistema de RSVP (Confirmação)
+- Os voluntários podem confirmar (✅) ou recusar (❌) sua participação.
+- **Recusa Obrigatória:** Ao recusar, é exigido um motivo, que fica visível para os líderes.
+- **Auditoria:** Todas as ações de RSVP são logadas no sistema.
+
+## 📂 Estrutura do Projeto
+
+- `/src/components`: Componentes visuais (Listas, Cards, Modais).
+- `/src/services`: Integração com APIs externas.
+    - `db.ts`: Camada de abstração do Supabase.
+    - `geminiService.ts`: Integração com a IA do Google.
+    - `supabaseClient.ts`: Inicialização do cliente Supabase.
+- `/src/types.ts`: Definições de tipos TypeScript globais.
+
+## 🔮 Roadmap & Melhorias Futuras
+
+### 1. Integração com WhatsApp (Automated Notifications)
+Atualmente o sistema gera links para envio manual. O objetivo é automatizar:
+- **Trigger:** Webhook no Supabase ao criar/alterar escala.
+- **Action:** Edge Function dispara mensagem via API do WhatsApp (Meta API ou Z-API).
+- **Mensagem:** "Olá {nome}, você foi escalado para {data}. Confirme aqui: {link}".
+
+### 2. Bloqueio de Datas (Unavailability)
+- Permitir que voluntários marquem "Férias" ou datas indisponíveis.
+- Alimentar essa informação no prompt da IA para evitar conflitos.
+
+### 3. Métricas
+- Dashboard para líderes visualizarem engajamento e frequência dos voluntários.
+
+### 4. PWA (Progressive Web App)
+- Melhorar o manifesto para permitir instalação nativa em Android/iOS e Push Notifications.
