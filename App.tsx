@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Volunteer, ServiceEvent, Ministry, EventType, AccessLevel, Team, AuditLogEntry, Organization } from './types';
 // Removed unused INITIAL_* imports to prevent accidental inheritance of sample data
 import VolunteerList from './components/VolunteerList';
@@ -11,7 +11,7 @@ import Login from './components/Login';
 import NotificationToggle from './components/NotificationToggle';
 import { db, clearDbOrganizationId } from './services/db';
 import { supabase } from './services/supabaseClient';
-import { Users, Calendar, BookOpen, ListFilter, Loader2, AlertCircle, Database, LogOut, Bell, CheckCircle2, Shield, Menu, X, Settings, Building, RefreshCw, ArrowRight, Copy } from 'lucide-react';
+import { Users, Calendar, BookOpen, ListFilter, Loader2, AlertCircle, Database, LogOut, Bell, CheckCircle2, Shield, Menu, X, Settings, Building, RefreshCw, ArrowRight, Copy, Search } from 'lucide-react';
 
 // Custom Logo Component mimicking the IASD diamond structure
 const IASDLogo = ({ className }: { className?: string }) => (
@@ -48,6 +48,9 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [needsDbRepair, setNeedsDbRepair] = useState(false); // New critical state
   const [repairErrorMsg, setRepairErrorMsg] = useState<string | null>(null); // Custom msg for repair screen
+  
+  // Ref para evitar race conditions no loadData
+  const isLoadingRef = useRef(false);
 
   // Check Auth on Mount
   useEffect(() => {
@@ -74,16 +77,19 @@ const App: React.FC = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Load Data when session exists
+  // Load Data when session exists - CORREÇÃO: Depende do ID do usuário, não do objeto session inteiro
   useEffect(() => {
-    if (session) {
+    if (session?.user?.id) {
       loadData();
     }
-  }, [session]);
+  }, [session?.user?.id]);
 
   const loadData = async () => {
+    if (isLoadingRef.current) return; // Evita chamadas simultâneas
+    isLoadingRef.current = true;
+    setLoading(true);
+    
     try {
-      setLoading(true);
       setError(null);
       setNeedsDbRepair(false); // Reset repair state
       setRepairErrorMsg(null);
@@ -99,6 +105,7 @@ const App: React.FC = () => {
               setNeedsDbRepair(true);
               setRepairErrorMsg('Erro de políticas de segurança.');
               setLoading(false);
+              isLoadingRef.current = false;
               return;
           }
       }
@@ -118,6 +125,7 @@ const App: React.FC = () => {
                    setNeedsDbRepair(true);
                    setRepairErrorMsg('Atualização necessária para vincular contas existentes.');
                    setLoading(false);
+                   isLoadingRef.current = false;
                    return;
                }
                console.warn("Falha ao tentar auto-claim:", claimErr);
@@ -127,37 +135,36 @@ const App: React.FC = () => {
       setCurrentOrg(org);
 
       if (!org) {
-          setLoading(false);
           // GARANTIA DE LIMPEZA: Se não tem organização, não pode ter dados na tela.
           setVolunteers([]);
           setTeams([]);
           setServices([]);
           setMinistries([]);
           setEventTypes([]);
-          return;
-      }
+          // Não retornamos aqui para permitir que o finally execute e pare o loading corretamente
+      } else {
+          // 2. Load Entity Data apenas se tiver organização
+          const [vData, tData, sData, mData, eData] = await Promise.all([
+            db.getVolunteers(),
+            db.getTeams(), 
+            db.getServices(),
+            db.getMinistries(),
+            db.getEventTypes()
+          ]);
+          
+          setVolunteers(vData);
+          setTeams(tData);
+          setServices(sData);
+          setMinistries(mData);
+          setEventTypes(eData);
 
-      // 2. Load Entity Data
-      const [vData, tData, sData, mData, eData] = await Promise.all([
-        db.getVolunteers(),
-        db.getTeams(), 
-        db.getServices(),
-        db.getMinistries(),
-        db.getEventTypes()
-      ]);
-      
-      setVolunteers(vData);
-      setTeams(tData);
-      setServices(sData);
-      setMinistries(mData);
-      setEventTypes(eData);
-
-      // Identify Current User Profile
-      if (session?.user?.email) {
-        let currentUser = vData.find(v => v.id === session.user.id);
-        if (currentUser) {
-            setUserProfile(currentUser);
-        }
+          // Identify Current User Profile
+          if (session?.user?.email) {
+            let currentUser = vData.find(v => v.id === session.user.id);
+            if (currentUser) {
+                setUserProfile(currentUser);
+            }
+          }
       }
 
     } catch (err: any) {
@@ -176,6 +183,7 @@ const App: React.FC = () => {
       setEventTypes([]);
     } finally {
       setLoading(false);
+      isLoadingRef.current = false;
     }
   };
 
@@ -354,10 +362,10 @@ const App: React.FC = () => {
   // --- RECOVERY / REPAIR SCREEN (Exclusively for DB Repair now) ---
   if (needsDbRepair) {
       
-      // SCRIPT SQL 'COMPLETE RESET' (V9)
-      const SQL_SCRIPT = `-- SOLUÇÃO V9: AUTO-VINCULAÇÃO DE PERFIL E CORREÇÕES
+      // SCRIPT SQL 'COMPLETE RESET' (V10) - Case Insensitive Email
+      const SQL_SCRIPT = `-- SOLUÇÃO V10: CORREÇÃO DE EMAIL (MINÚSCULAS) E VINCULAÇÃO
 
--- 1. Limpeza de Funções
+-- 1. Limpeza de Funções Antigas
 DROP FUNCTION IF EXISTS get_my_org_id() CASCADE;
 DROP FUNCTION IF EXISTS claim_profile_by_email(text, text);
 
@@ -382,6 +390,7 @@ ALTER TABLE organizations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
 
 -- 4. Função de Auto-Claim (VINCULAR CONTA NOVA AO PERFIL EXISTENTE)
+-- CORREÇÃO V10: Usa LOWER() para comparar emails, evitando erro de maiúsculas/minúsculas
 CREATE OR REPLACE FUNCTION claim_profile_by_email(user_email text, new_user_id text)
 RETURNS boolean
 LANGUAGE plpgsql
@@ -390,8 +399,11 @@ AS $$
 DECLARE
   old_user_id text;
 BEGIN
-  -- Acha o perfil antigo pelo email, que tenha um ID diferente do novo
-  SELECT id INTO old_user_id FROM volunteers WHERE email = user_email AND id != new_user_id LIMIT 1;
+  -- Acha o perfil antigo pelo email (case insensitive), que tenha um ID diferente do novo
+  SELECT id INTO old_user_id 
+  FROM volunteers 
+  WHERE LOWER(email) = LOWER(user_email) AND id != new_user_id 
+  LIMIT 1;
   
   IF old_user_id IS NULL THEN
     RETURN FALSE; -- Nada para reivindicar
@@ -409,7 +421,6 @@ BEGIN
   WHERE member_ids @> ARRAY[old_user_id];
 
   -- 3. Atualiza Serviços (Substitui ID antigo no JSON das designações)
-  -- Nota: Isso é um replace simples em string JSON. IDs devem ser unicos.
   UPDATE services 
   SET assignments = REPLACE(assignments::text, '"' || old_user_id || '"', '"' || new_user_id || '"')::jsonb
   WHERE assignments::text LIKE '%"' || old_user_id || '"%';
@@ -455,7 +466,7 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 );
 ALTER TABLE push_subscriptions ENABLE ROW LEVEL SECURITY;
 
--- 7. Políticas de Acesso
+-- 7. Políticas de Acesso (Recria para garantir)
 DROP POLICY IF EXISTS "vol_select" ON volunteers;
 CREATE POLICY "vol_select" ON volunteers FOR SELECT USING (auth.uid()::text = id OR organization_id = get_my_org_id());
 CREATE POLICY "vol_insert" ON volunteers FOR INSERT WITH CHECK (auth.uid()::text = id OR organization_id = get_my_org_id());
@@ -484,7 +495,7 @@ CREATE POLICY "log_view" ON audit_logs FOR SELECT USING (organization_id = get_m
 DROP POLICY IF EXISTS "push_own" ON push_subscriptions;
 CREATE POLICY "push_own" ON push_subscriptions FOR ALL USING (auth.uid()::text = user_id);
 
--- 8. Grants (Permissões de Execução)
+-- 8. Grants
 GRANT EXECUTE ON FUNCTION get_my_org_id TO authenticated;
 GRANT EXECUTE ON FUNCTION create_church_and_admin TO authenticated;
 GRANT EXECUTE ON FUNCTION claim_profile_by_email TO authenticated;
@@ -508,8 +519,8 @@ GRANT ALL ON TABLE push_subscriptions TO authenticated;`;
                         </div>
                         <h2 className="text-xl font-bold text-red-700 mb-2">Atualização de Banco Necessária</h2>
                         <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-left text-sm text-red-800 mb-4">
-                            <p className="font-bold flex items-center gap-2 mb-2"><AlertCircle size={16}/> {repairErrorMsg || 'Novas Funcionalidades Requerem Atualização'}</p>
-                            <p>Para corrigir a vinculação de contas e notificações, execute o script V9 abaixo.</p>
+                            <p className="font-bold flex items-center gap-2 mb-2"><AlertCircle size={16}/> {repairErrorMsg || 'Correção de Vínculo de Contas'}</p>
+                            <p>O script V10 abaixo corrige problemas onde o email cadastrado tem letras maiúsculas/minúsculas diferentes do login.</p>
                         </div>
                   </div>
 
@@ -517,13 +528,13 @@ GRANT ALL ON TABLE push_subscriptions TO authenticated;`;
                   <div className="text-left mb-6 bg-slate-50 border border-slate-200 rounded-lg p-4">
                       <h3 className="font-bold text-slate-800 flex items-center gap-2 mb-2">
                           <Database size={18} />
-                          Script de Atualização (V9)
+                          Script de Atualização (V10)
                       </h3>
                       <ol className="list-decimal list-inside text-xs text-slate-500 mb-3 space-y-1">
                           <li>Copie o código SQL abaixo.</li>
                           <li>Vá ao <strong>Supabase Dashboard</strong> {'>'} <strong>SQL Editor</strong>.</li>
                           <li>Cole o código e clique em <strong>RUN</strong>.</li>
-                          <li>Após rodar com sucesso, clique em "Tentar Novamente" abaixo.</li>
+                          <li>Após rodar, clique em "Tentar Novamente".</li>
                       </ol>
                       <div className="relative">
                           <pre className="bg-slate-800 text-slate-200 p-3 rounded text-[10px] overflow-x-auto whitespace-pre-wrap font-mono h-48">
@@ -723,6 +734,26 @@ GRANT ALL ON TABLE push_subscriptions TO authenticated;`;
                             Você está logado, mas sua conta ainda não faz parte de nenhuma organização. 
                             Peça para o líder do seu ministério te adicionar na equipe.
                         </p>
+                        
+                        <div className="flex flex-col gap-3 w-full max-w-xs">
+                             <button 
+                                onClick={loadData} 
+                                className="bg-brand-primary hover:bg-brand-primary-hover text-white px-6 py-2.5 rounded-lg font-medium shadow-sm transition-colors flex items-center justify-center gap-2"
+                             >
+                                <Search size={18} />
+                                Verificar se fui adicionado
+                             </button>
+
+                             <button 
+                                onClick={() => {
+                                    setRepairErrorMsg("Correção de Maiúsculas/Minúsculas no Email");
+                                    setNeedsDbRepair(true);
+                                }} 
+                                className="text-brand-muted hover:text-brand-secondary hover:bg-white border border-transparent hover:border-brand-muted/20 px-6 py-2 rounded-lg text-sm transition-colors"
+                             >
+                                Sou Admin: Reparar Banco
+                             </button>
+                        </div>
                     </div>
                 )}
 

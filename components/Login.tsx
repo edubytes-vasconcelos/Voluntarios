@@ -42,7 +42,8 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
-      onLoginSuccess();
+      // Não chamamos onLoginSuccess() aqui manualmente. 
+      // O App.tsx detectará a mudança de sessão via onAuthStateChange e carregará os dados automaticamente.
     } catch (err: any) {
       setError(err.message === 'Invalid login credentials' ? 'Email ou senha incorretos.' : err.message);
     } finally {
@@ -63,7 +64,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
         } else {
             const exists = await db.getVolunteers();
             if (exists) {
-                onLoginSuccess();
+                // Sessão atualizada automaticamente
             } else {
                 setSuccessMessage("Conta criada! Peça ao seu líder para te adicionar na equipe.");
             }
@@ -110,8 +111,13 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                    email: email,
                    name: name
                });
-               // Se passou daqui, funcionou
-               onLoginSuccess();
+               
+               // SUCESSO CRÍTICO:
+               // Forçamos um reload completo da página.
+               // Isso garante que o App reinicie do zero, pegue a sessão existente
+               // e carregue os dados da nova organização sem cache antigo atrapalhando.
+               window.location.reload();
+
              } catch (dbError: any) {
                 // Se der erro de "duplicate key" em volunteers, significa que o usuário já tem uma igreja/perfil
                 if (dbError.message?.includes('duplicate key')) {
@@ -126,7 +132,6 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     } catch (err: any) {
         console.error("Registration Error:", err);
         setError(err.message || "Erro desconhecido ao registrar.");
-    } finally {
         setLoading(false);
     }
   };
