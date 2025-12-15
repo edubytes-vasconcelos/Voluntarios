@@ -1,0 +1,22 @@
+
+{
+  "name": "Gestor de Escalas",
+  "short_name": "Escalas",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f0f7f4",
+  "theme_color": "#004a5e",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "https://ui-avatars.com/api/?name=GE&background=004a5e&color=fff&size=192&rounded=true",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "https://ui-avatars.com/api/?name=GE&background=004a5e&color=fff&size=512&rounded=true",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ]
+}

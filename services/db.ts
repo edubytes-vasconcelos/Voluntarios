@@ -1,29 +1,137 @@
 
 import { supabase } from './supabaseClient';
-import { Volunteer, Ministry, ServiceEvent, EventType, Team, AuditLogEntry } from '../types';
+import { Volunteer, Ministry, ServiceEvent, EventType, Team, AuditLogEntry, Organization } from '../types';
 
-// Convert DB snake_case to CamelCase if necessary, 
-// but here we align DB columns to types or map them manually.
+let currentOrganizationId: string | null = null;
+
+export const setDbOrganizationId = (id: string) => {
+  currentOrganizationId = id;
+};
+
+// Limpa o contexto ao fazer logout
+export const clearDbOrganizationId = () => {
+  currentOrganizationId = null;
+};
 
 export const db = {
+  // --- Profile Claiming (New) ---
+  async claimProfileByEmail(email: string, authId: string): Promise<boolean> {
+      // Chama a função RPC para unificar o perfil criado pelo líder com o login atual
+      const { data, error } = await supabase.rpc('claim_profile_by_email', {
+          user_email: email,
+          new_user_id: authId
+      });
+
+      if (error) {
+          // Se a função não existir, lançamos erro específico para a UI pedir atualização do SQL
+          if (error.code === '42883') throw new Error("MISSING_DB_FUNCTION");
+          console.error("Erro no auto-claim:", error);
+          return false;
+      }
+
+      return data as boolean;
+  },
+
+  // --- Organizations (SaaS) ---
+  
+  async createOrganization(orgName: string, adminUser: { id: string, email: string, name: string }) {
+    console.log("Tentando criar organização via RPC...", { orgName, adminUser });
+
+    // TENTATIVA ÚNICA: Via RPC (Remote Procedure Call)
+    // Usamos 'security definer' no banco para ignorar as regras de RLS durante a criação inicial
+    const { data, error } = await supabase.rpc('create_church_and_admin', {
+      church_name: orgName,
+      admin_name: adminUser.name,
+      admin_email: adminUser.email,
+      admin_id: adminUser.id,
+      admin_avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(adminUser.name)}&background=004a5e&color=fff`
+    });
+
+    if (error) {
+        console.error("Erro RPC:", error);
+        
+        // Se o erro for de função inexistente, permissão, ou VIOLAÇÃO DE CHAVE ÚNICA (23505),
+        // lançamos o erro específico para que a UI mostre o Script SQL de correção.
+        if (error.code === '42883' || error.code === '23505' || error.message?.includes('violates unique constraint')) {
+             throw new Error("MISSING_DB_FUNCTION"); 
+        }
+        
+        throw error;
+    }
+
+    return data;
+  },
+
+  async getMyOrganization(): Promise<Organization | null> {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session || !session.user) return null;
+
+      // Busca dados do voluntário para saber a ID da organização
+      // Adicionamos .maybeSingle() para evitar erro se não encontrar
+      const { data: profile, error: profileError } = await supabase
+        .from('volunteers')
+        .select('organization_id')
+        .eq('id', session.user.id) // Supabase Auth ID é UUID, mas comparamos com ID texto do volunteer
+        .maybeSingle(); 
+      
+      if (profileError) {
+          // CRÍTICO: Detecta erro de recursão infinita no RLS (42P17)
+          // Se isso acontecer, o banco está quebrado. Lançamos erro específico para a UI mostrar o script de fix.
+          if (profileError.code === '42P17' || profileError.message?.includes('infinite recursion')) {
+              // Não loga console.error para evitar spam, apenas lança o erro controlado
+              throw new Error("DB_POLICY_ERROR");
+          }
+          console.error("Erro ao buscar perfil:", profileError);
+          return null;
+      }
+
+      if (!profile || !profile.organization_id) {
+          return null;
+      }
+
+      // Com a ID, busca o nome da organização
+      const { data: org, error: orgError } = await supabase
+          .from('organizations')
+          .select('id, name')
+          .eq('id', profile.organization_id)
+          .maybeSingle();
+
+      if (orgError || !org) return null;
+      
+      setDbOrganizationId(org.id);
+      return { id: org.id, name: org.name };
+  },
+
   // --- Volunteers ---
   async getVolunteers(): Promise<Volunteer[]> {
-    const { data, error } = await supabase.from('volunteers').select('*');
+    if (!currentOrganizationId) return [];
+
+    const { data, error } = await supabase
+        .from('volunteers')
+        .select('*')
+        .eq('organization_id', currentOrganizationId) // Filtro Explícito
+        .order('name');
+        
     if (error) throw error;
     
     return data.map((v: any) => ({
       id: v.id,
+      organizationId: v.organization_id,
       name: v.name,
-      roles: v.roles || [], // Ensure array
+      roles: v.roles || [],
       avatarUrl: v.avatar_url,
       email: v.email,
-      accessLevel: v.access_level || 'volunteer' // Default to volunteer if null
+      accessLevel: v.access_level || 'volunteer'
     }));
   },
 
   async addVolunteer(volunteer: Volunteer) {
+    const orgId = currentOrganizationId || volunteer.organizationId;
+    if (!orgId) throw new Error("Organização não identificada.");
+
     const { error } = await supabase.from('volunteers').insert({
       id: volunteer.id,
+      organization_id: orgId,
       name: volunteer.name,
       roles: volunteer.roles,
       avatar_url: volunteer.avatarUrl,
@@ -40,19 +148,28 @@ export const db = {
 
   // --- Teams ---
   async getTeams(): Promise<Team[]> {
-    const { data, error } = await supabase.from('teams').select('*');
+    if (!currentOrganizationId) return [];
+
+    const { data, error } = await supabase
+        .from('teams')
+        .select('*')
+        .eq('organization_id', currentOrganizationId); // Filtro Explícito
+
     if (error) throw error;
     
     return data.map((t: any) => ({
       id: t.id,
+      organizationId: t.organization_id,
       name: t.name,
-      memberIds: t.member_ids || [] // Fixed: map snake_case DB column to camelCase Type property
+      memberIds: t.member_ids || []
     }));
   },
 
   async addTeam(team: Team) {
+    if (!currentOrganizationId) throw new Error("No Organization Context");
     const { error } = await supabase.from('teams').insert({
       id: team.id,
+      organization_id: currentOrganizationId,
       name: team.name,
       member_ids: team.memberIds
     });
@@ -74,13 +191,26 @@ export const db = {
 
   // --- Ministries ---
   async getMinistries(): Promise<Ministry[]> {
-    const { data, error } = await supabase.from('ministries').select('*');
+    if (!currentOrganizationId) return [];
+
+    const { data, error } = await supabase
+        .from('ministries')
+        .select('*')
+        .eq('organization_id', currentOrganizationId); // Filtro Explícito
+
     if (error) throw error;
-    return data || [];
+    return data.map((m: any) => ({
+        id: m.id,
+        organizationId: m.organization_id,
+        name: m.name,
+        icon: m.icon
+    }));
   },
 
   async addMinistry(ministry: Ministry) {
+    if (!currentOrganizationId) throw new Error("No Organization Context");
     const { error } = await supabase.from('ministries').insert({
+      organization_id: currentOrganizationId,
       name: ministry.name,
       icon: ministry.icon
     });
@@ -94,13 +224,25 @@ export const db = {
 
   // --- Event Types ---
   async getEventTypes(): Promise<EventType[]> {
-    const { data, error } = await supabase.from('event_types').select('*');
+    if (!currentOrganizationId) return [];
+
+    const { data, error } = await supabase
+        .from('event_types')
+        .select('*')
+        .eq('organization_id', currentOrganizationId); // Filtro Explícito
+        
     if (error) throw error;
     return data || [];
   },
 
   async addEventType(eventType: EventType) {
-    const { error } = await supabase.from('event_types').insert(eventType);
+    if (!currentOrganizationId) throw new Error("No Organization Context");
+    const { error } = await supabase.from('event_types').insert({
+        id: eventType.id,
+        organization_id: currentOrganizationId,
+        name: eventType.name,
+        color: eventType.color
+    });
     if (error) throw error;
   },
 
@@ -111,11 +253,18 @@ export const db = {
 
   // --- Services / Schedule ---
   async getServices(): Promise<ServiceEvent[]> {
-    const { data, error } = await supabase.from('services').select('*');
+    if (!currentOrganizationId) return [];
+    
+    const { data, error } = await supabase
+        .from('services')
+        .select('*')
+        .eq('organization_id', currentOrganizationId); // Filtro Explícito
+
     if (error) throw error;
     
     return data.map((s: any) => ({
       id: s.id,
+      organizationId: s.organization_id,
       date: s.date,
       title: s.title,
       eventTypeId: s.event_type_id,
@@ -124,8 +273,10 @@ export const db = {
   },
 
   async addService(service: ServiceEvent) {
+    if (!currentOrganizationId) throw new Error("No Organization Context");
     const { error } = await supabase.from('services').insert({
       id: service.id,
+      organization_id: currentOrganizationId,
       date: service.date,
       title: service.title,
       event_type_id: service.eventTypeId,
@@ -151,8 +302,38 @@ export const db = {
 
   // --- Audit Logs ---
   async addAuditLog(entry: AuditLogEntry) {
-    // We don't throw error here to avoid blocking the main action if logging fails
-    const { error } = await supabase.from('audit_logs').insert(entry);
+    if (!currentOrganizationId) return; 
+    const { error } = await supabase.from('audit_logs').insert({
+        organization_id: currentOrganizationId,
+        user_email: entry.user_email,
+        action: entry.action,
+        resource: entry.resource,
+        resource_id: entry.resource_id,
+        details: entry.details
+    });
     if (error) console.error("Failed to write audit log:", error);
+  },
+
+  // --- Push Notifications ---
+  async savePushSubscription(userId: string, subscription: PushSubscription) {
+    // Upsert subscription for user. 
+    // Requires table 'push_subscriptions' with columns: id, user_id, subscription (jsonb)
+    try {
+        const { error } = await supabase.from('push_subscriptions').upsert({
+            user_id: userId,
+            subscription: JSON.parse(JSON.stringify(subscription)) // Ensure plain JSON
+        }, { onConflict: 'user_id, subscription' }); // Avoid duplicates for same device
+
+        if (error) {
+            // Se tabela não existe, apenas loga e ignora para não quebrar o app
+            if (error.code === '42P01') { 
+                console.warn("Tabela push_subscriptions não existe. Execute o script SQL de atualização.");
+                return;
+            }
+            throw error;
+        }
+    } catch (e) {
+        console.error("Erro ao salvar assinatura push:", e);
+    }
   }
 };

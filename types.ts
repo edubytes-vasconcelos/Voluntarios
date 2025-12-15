@@ -4,18 +4,22 @@ export type RoleType = string;
 export type AccessLevel = 'admin' | 'leader' | 'volunteer';
 
 export interface Ministry {
+  id?: string; // DB ID (uuid)
+  organizationId?: string;
   name: string;
   icon: string;
 }
 
 export interface EventType {
   id: string;
+  organizationId?: string;
   name: string;
   color: string; // Tailwind color class (e.g., 'bg-blue-500')
 }
 
 export interface Volunteer {
   id: string;
+  organizationId?: string;
   name: string;
   roles: RoleType[];
   email?: string;
@@ -26,6 +30,7 @@ export interface Volunteer {
 
 export interface Team {
   id: string;
+  organizationId?: string;
   name: string;
   memberIds: string[]; // IDs dos voluntários que compõem a equipe
 }
@@ -42,6 +47,7 @@ export interface Assignment {
 
 export interface ServiceEvent {
   id: string;
+  organizationId?: string;
   date: string; // ISO Date string
   title: string;
   eventTypeId?: string; // Optional link to the type definition
@@ -69,8 +75,14 @@ export interface GeneratedScheduleResponse {
 
 export interface AuditLogEntry {
   user_email?: string;
+  organizationId?: string;
   action: string;
   resource: string;
   resource_id: string;
   details?: any;
+}
+
+export interface Organization {
+  id: string;
+  name: string;
 }

@@ -1,16 +1,17 @@
 
 import React, { useState, useEffect } from 'react';
-import { Volunteer, ServiceEvent, Ministry, EventType, AccessLevel, Team, AuditLogEntry } from './types';
-import { INITIAL_VOLUNTEERS, INITIAL_SERVICES, INITIAL_MINISTRIES, INITIAL_EVENT_TYPES } from './constants';
+import { Volunteer, ServiceEvent, Ministry, EventType, AccessLevel, Team, AuditLogEntry, Organization } from './types';
+// Removed unused INITIAL_* imports to prevent accidental inheritance of sample data
 import VolunteerList from './components/VolunteerList';
 import ScheduleView from './components/ScheduleView';
 import MinistryList from './components/MinistryList';
 import EventTypeList from './components/EventTypeList';
 import TeamList from './components/TeamList';
 import Login from './components/Login';
-import { db } from './services/db';
+import NotificationToggle from './components/NotificationToggle';
+import { db, clearDbOrganizationId } from './services/db';
 import { supabase } from './services/supabaseClient';
-import { Users, Calendar, BookOpen, ListFilter, Loader2, AlertCircle, Database, LogOut, Bell, CheckCircle2, Shield, Menu, X, Settings } from 'lucide-react';
+import { Users, Calendar, BookOpen, ListFilter, Loader2, AlertCircle, Database, LogOut, Bell, CheckCircle2, Shield, Menu, X, Settings, Building, RefreshCw, ArrowRight, Copy } from 'lucide-react';
 
 // Custom Logo Component mimicking the IASD diamond structure
 const IASDLogo = ({ className }: { className?: string }) => (
@@ -30,24 +31,33 @@ const IASDLogo = ({ className }: { className?: string }) => (
 const App: React.FC = () => {
   const [session, setSession] = useState<any>(null);
   const [userProfile, setUserProfile] = useState<Volunteer | null>(null);
+  const [currentOrg, setCurrentOrg] = useState<Organization | null>(null);
   const [appReady, setAppReady] = useState(false);
 
   const [activeTab, setActiveTab] = useState<'schedule' | 'volunteers' | 'teams' | 'ministries' | 'eventTypes'>('schedule');
   
-  // State
+  // State initialization - Start Empty
   const [volunteers, setVolunteers] = useState<Volunteer[]>([]);
   const [teams, setTeams] = useState<Team[]>([]); 
   const [services, setServices] = useState<ServiceEvent[]>([]);
   const [ministries, setMinistries] = useState<Ministry[]>([]);
   const [eventTypes, setEventTypes] = useState<EventType[]>([]);
   
-  const [loading, setLoading] = useState(false); 
+  // CORREÇÃO: Inicia loading como true para evitar flash da tela de cadastro
+  const [loading, setLoading] = useState(true); 
   const [error, setError] = useState<string | null>(null);
+  const [needsDbRepair, setNeedsDbRepair] = useState(false); // New critical state
+  const [repairErrorMsg, setRepairErrorMsg] = useState<string | null>(null); // Custom msg for repair screen
 
   // Check Auth on Mount
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
+      // Se NÃO tiver sessão, paramos o loading para mostrar o Login.
+      // Se TIVER sessão, mantemos o loading true pois o loadData() vai rodar em seguida.
+      if (!session) {
+          setLoading(false);
+      }
       setAppReady(true);
     });
 
@@ -55,6 +65,10 @@ const App: React.FC = () => {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
+      // Mesma lógica: se fez logout, para loading. Se fez login, o useEffect[session] vai disparar o loadData
+      if (!session) {
+          setLoading(false);
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -70,6 +84,60 @@ const App: React.FC = () => {
   const loadData = async () => {
     try {
       setLoading(true);
+      setError(null);
+      setNeedsDbRepair(false); // Reset repair state
+      setRepairErrorMsg(null);
+      
+      // 1. Establish Organization Context
+      let org = null;
+      
+      // Tenta buscar organização
+      try {
+          org = await db.getMyOrganization();
+      } catch (innerErr: any) {
+          if (innerErr.message === 'DB_POLICY_ERROR') {
+              setNeedsDbRepair(true);
+              setRepairErrorMsg('Erro de políticas de segurança.');
+              setLoading(false);
+              return;
+          }
+      }
+
+      // Se não encontrou organização, TENTA REIVINDICAR PERFIL por email
+      if (!org && session?.user?.email) {
+          console.log("Usuário sem organização. Verificando convites...");
+          try {
+              const claimed = await db.claimProfileByEmail(session.user.email, session.user.id);
+              if (claimed) {
+                  console.log("Perfil unificado com sucesso! Recarregando...");
+                  // Tenta buscar de novo agora que o ID foi corrigido
+                  org = await db.getMyOrganization();
+              }
+          } catch (claimErr: any) {
+               if (claimErr.message === 'MISSING_DB_FUNCTION') {
+                   setNeedsDbRepair(true);
+                   setRepairErrorMsg('Atualização necessária para vincular contas existentes.');
+                   setLoading(false);
+                   return;
+               }
+               console.warn("Falha ao tentar auto-claim:", claimErr);
+          }
+      }
+
+      setCurrentOrg(org);
+
+      if (!org) {
+          setLoading(false);
+          // GARANTIA DE LIMPEZA: Se não tem organização, não pode ter dados na tela.
+          setVolunteers([]);
+          setTeams([]);
+          setServices([]);
+          setMinistries([]);
+          setEventTypes([]);
+          return;
+      }
+
+      // 2. Load Entity Data
       const [vData, tData, sData, mData, eData] = await Promise.all([
         db.getVolunteers(),
         db.getTeams(), 
@@ -86,34 +154,47 @@ const App: React.FC = () => {
 
       // Identify Current User Profile
       if (session?.user?.email) {
-        const currentUser = vData.find(v => v.email === session.user.email);
-        setUserProfile(currentUser || {
-             id: 'temp', 
-             name: 'Visitante', 
-             roles: [], 
-             email: session.user.email,
-             accessLevel: 'volunteer' 
-        });
+        let currentUser = vData.find(v => v.id === session.user.id);
+        if (currentUser) {
+            setUserProfile(currentUser);
+        }
       }
 
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to load data from Supabase:", err);
-      setError("Não foi possível carregar os dados.");
-      // Fallback
-      setVolunteers(INITIAL_VOLUNTEERS);
-      setServices(INITIAL_SERVICES);
-      setMinistries(INITIAL_MINISTRIES);
-      setEventTypes(INITIAL_EVENT_TYPES);
-      setUserProfile({ id: 'demo', name: 'Demo Admin', roles: [], accessLevel: 'admin' });
+      // Fallback if DB_POLICY_ERROR wasn't caught in the inner loop
+      if (err.message === 'DB_POLICY_ERROR' || err.message === 'RECURSION_ERROR') {
+          setNeedsDbRepair(true);
+      } else {
+          setError("Não foi possível carregar os dados.");
+      }
+      // Safety Clear
+      setVolunteers([]);
+      setTeams([]);
+      setServices([]);
+      setMinistries([]);
+      setEventTypes([]);
     } finally {
       setLoading(false);
     }
   };
 
   const handleLogout = async () => {
+    localStorage.removeItem('church_registration_name'); // Clear temp data
+    
+    // EXPLICIT STATE CLEARING: Prevents data leakage between sessions
+    setVolunteers([]);
+    setTeams([]);
+    setServices([]);
+    setMinistries([]);
+    setEventTypes([]);
+    setUserProfile(null);
+    setCurrentOrg(null);
+    setNeedsDbRepair(false);
+    clearDbOrganizationId(); // Clear DB service static state
+
     await supabase.auth.signOut();
     setSession(null);
-    setUserProfile(null);
   };
 
   const handleNavClick = (tab: typeof activeTab) => {
@@ -124,10 +205,17 @@ const App: React.FC = () => {
   const handleAddVolunteer = async (newVolunteer: Volunteer) => {
     try {
       await db.addVolunteer(newVolunteer);
-      setVolunteers(prev => [...prev, newVolunteer]);
-    } catch (e) {
+      const v = await db.getVolunteers();
+      setVolunteers(v);
+    } catch (e: any) {
       console.error(e);
-      alert('Erro ao salvar voluntário.');
+      // Catch RLS Error 42501 (Insufficient Privilege)
+      if (e.code === '42501' || e.message?.includes('violates row-level security')) {
+          setRepairErrorMsg("Erro de Permissão: O banco de dados bloqueou o cadastro.");
+          setNeedsDbRepair(true);
+      } else {
+          alert('Erro ao salvar voluntário: ' + (e.message || 'Desconhecido'));
+      }
     }
   };
 
@@ -144,7 +232,8 @@ const App: React.FC = () => {
   const handleAddTeam = async (newTeam: Team) => {
     try {
       await db.addTeam(newTeam);
-      setTeams(prev => [...prev, newTeam]);
+      const t = await db.getTeams();
+      setTeams(t);
     } catch (e) {
       console.error(e);
       alert('Erro ao salvar equipe.');
@@ -218,7 +307,8 @@ const App: React.FC = () => {
   const handleAddMinistry = async (newMinistry: Ministry) => {
     try {
       await db.addMinistry(newMinistry);
-      setMinistries(prev => [...prev, newMinistry]);
+      const m = await db.getMinistries();
+      setMinistries(m);
     } catch (e) { alert('Erro ao adicionar ministério'); }
   };
 
@@ -243,28 +333,229 @@ const App: React.FC = () => {
     } catch (e) { alert('Erro ao remover tipo de evento'); }
   };
 
-  const seedDatabase = async () => {
-    setLoading(true);
-    for (const m of INITIAL_MINISTRIES) await db.addMinistry(m);
-    for (const t of INITIAL_EVENT_TYPES) await db.addEventType(t);
-    loadData();
-  };
-
   // --- Derived State & Checks ---
   
   if (!appReady) return <div className="h-screen flex items-center justify-center bg-brand-bg"><Loader2 className="animate-spin text-brand-primary"/></div>;
 
   if (!session) {
-    return <Login onLoginSuccess={() => {}} />;
+    return <Login onLoginSuccess={() => loadData()} />;
   }
 
-  if (loading && !userProfile) {
+  // Handle case where user logged in but data is fetching or user has no org
+  if (loading) {
     return (
       <div className="min-h-screen bg-brand-bg flex items-center justify-center flex-col gap-4 text-brand-primary">
         <Loader2 size={48} className="animate-spin" />
-        <p className="font-medium animate-pulse">Carregando dados...</p>
+        <p className="font-medium animate-pulse">Carregando seus dados...</p>
       </div>
     );
+  }
+
+  // --- RECOVERY / REPAIR SCREEN (Exclusively for DB Repair now) ---
+  if (needsDbRepair) {
+      
+      // SCRIPT SQL 'COMPLETE RESET' (V9)
+      const SQL_SCRIPT = `-- SOLUÇÃO V9: AUTO-VINCULAÇÃO DE PERFIL E CORREÇÕES
+
+-- 1. Limpeza de Funções
+DROP FUNCTION IF EXISTS get_my_org_id() CASCADE;
+DROP FUNCTION IF EXISTS claim_profile_by_email(text, text);
+
+-- 2. Recriar Função de Segurança Principal
+CREATE OR REPLACE FUNCTION get_my_org_id()
+RETURNS uuid
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+STABLE
+AS $$
+  SELECT organization_id FROM volunteers WHERE id = auth.uid()::text LIMIT 1;
+$$;
+
+-- 3. Habilitar RLS (Segurança)
+ALTER TABLE volunteers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE services ENABLE ROW LEVEL SECURITY;
+ALTER TABLE teams ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ministries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE event_types ENABLE ROW LEVEL SECURITY;
+ALTER TABLE organizations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
+
+-- 4. Função de Auto-Claim (VINCULAR CONTA NOVA AO PERFIL EXISTENTE)
+CREATE OR REPLACE FUNCTION claim_profile_by_email(user_email text, new_user_id text)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  old_user_id text;
+BEGIN
+  -- Acha o perfil antigo pelo email, que tenha um ID diferente do novo
+  SELECT id INTO old_user_id FROM volunteers WHERE email = user_email AND id != new_user_id LIMIT 1;
+  
+  IF old_user_id IS NULL THEN
+    RETURN FALSE; -- Nada para reivindicar
+  END IF;
+
+  -- 1. Atualiza ID do Voluntário
+  UPDATE volunteers SET id = new_user_id WHERE id = old_user_id;
+  
+  -- 2. Atualiza Equipes (Substitui ID antigo pelo novo na lista de membros)
+  UPDATE teams 
+  SET member_ids = (
+    SELECT array_agg(CASE WHEN elem = old_user_id THEN new_user_id ELSE elem END)
+    FROM unnest(member_ids) elem
+  )
+  WHERE member_ids @> ARRAY[old_user_id];
+
+  -- 3. Atualiza Serviços (Substitui ID antigo no JSON das designações)
+  -- Nota: Isso é um replace simples em string JSON. IDs devem ser unicos.
+  UPDATE services 
+  SET assignments = REPLACE(assignments::text, '"' || old_user_id || '"', '"' || new_user_id || '"')::jsonb
+  WHERE assignments::text LIKE '%"' || old_user_id || '"%';
+
+  RETURN TRUE;
+END;
+$$;
+
+-- 5. Função RPC de Cadastro Inicial (Admin)
+CREATE OR REPLACE FUNCTION create_church_and_admin(
+  church_name text,
+  admin_name text,
+  admin_email text,
+  admin_id uuid,
+  admin_avatar text
+) RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  new_org_id uuid;
+BEGIN
+  INSERT INTO organizations (name) VALUES (church_name) RETURNING id INTO new_org_id;
+  
+  INSERT INTO volunteers (id, organization_id, name, email, roles, access_level, avatar_url)
+  VALUES (admin_id::text, new_org_id, admin_name, admin_email, '["Líder", "Admin"]'::jsonb, 'admin', admin_avatar)
+  ON CONFLICT (id) DO UPDATE SET
+    organization_id = EXCLUDED.organization_id,
+    access_level = 'admin',
+    roles = '["Líder", "Admin"]'::jsonb;
+    
+  RETURN new_org_id;
+END;
+$$;
+
+-- 6. Tabela Push (Caso não exista)
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id text NOT NULL,
+  subscription jsonb NOT NULL,
+  created_at timestamptz DEFAULT now(),
+  UNIQUE(user_id, subscription)
+);
+ALTER TABLE push_subscriptions ENABLE ROW LEVEL SECURITY;
+
+-- 7. Políticas de Acesso
+DROP POLICY IF EXISTS "vol_select" ON volunteers;
+CREATE POLICY "vol_select" ON volunteers FOR SELECT USING (auth.uid()::text = id OR organization_id = get_my_org_id());
+CREATE POLICY "vol_insert" ON volunteers FOR INSERT WITH CHECK (auth.uid()::text = id OR organization_id = get_my_org_id());
+CREATE POLICY "vol_update" ON volunteers FOR UPDATE USING (auth.uid()::text = id OR organization_id = get_my_org_id());
+CREATE POLICY "vol_delete" ON volunteers FOR DELETE USING (organization_id = get_my_org_id());
+
+DROP POLICY IF EXISTS "svc_all" ON services;
+CREATE POLICY "svc_all" ON services FOR ALL USING (organization_id = get_my_org_id());
+
+DROP POLICY IF EXISTS "team_all" ON teams;
+CREATE POLICY "team_all" ON teams FOR ALL USING (organization_id = get_my_org_id());
+
+DROP POLICY IF EXISTS "min_all" ON ministries;
+CREATE POLICY "min_all" ON ministries FOR ALL USING (organization_id = get_my_org_id());
+
+DROP POLICY IF EXISTS "evt_all" ON event_types;
+CREATE POLICY "evt_all" ON event_types FOR ALL USING (organization_id = get_my_org_id());
+
+DROP POLICY IF EXISTS "org_view" ON organizations;
+CREATE POLICY "org_view" ON organizations FOR SELECT USING (id = get_my_org_id());
+
+DROP POLICY IF EXISTS "log_all" ON audit_logs;
+CREATE POLICY "log_insert" ON audit_logs FOR INSERT WITH CHECK (organization_id = get_my_org_id());
+CREATE POLICY "log_view" ON audit_logs FOR SELECT USING (organization_id = get_my_org_id());
+
+DROP POLICY IF EXISTS "push_own" ON push_subscriptions;
+CREATE POLICY "push_own" ON push_subscriptions FOR ALL USING (auth.uid()::text = user_id);
+
+-- 8. Grants (Permissões de Execução)
+GRANT EXECUTE ON FUNCTION get_my_org_id TO authenticated;
+GRANT EXECUTE ON FUNCTION create_church_and_admin TO authenticated;
+GRANT EXECUTE ON FUNCTION claim_profile_by_email TO authenticated;
+GRANT ALL ON TABLE organizations TO authenticated;
+GRANT ALL ON TABLE volunteers TO authenticated;
+GRANT ALL ON TABLE services TO authenticated;
+GRANT ALL ON TABLE teams TO authenticated;
+GRANT ALL ON TABLE ministries TO authenticated;
+GRANT ALL ON TABLE event_types TO authenticated;
+GRANT ALL ON TABLE audit_logs TO authenticated;
+GRANT ALL ON TABLE push_subscriptions TO authenticated;`;
+
+      return (
+          <div className="min-h-screen bg-brand-bg flex items-center justify-center p-4">
+              <div className="bg-white p-8 rounded-2xl shadow-xl w-full text-center border border-red-300 max-w-3xl">
+                  
+                  {/* REPAIR MODE HEADER */}
+                  <div className="mb-6">
+                        <div className="bg-red-50 p-4 rounded-full w-20 h-20 flex items-center justify-center mx-auto mb-4 text-red-600">
+                            <Database size={32} />
+                        </div>
+                        <h2 className="text-xl font-bold text-red-700 mb-2">Atualização de Banco Necessária</h2>
+                        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-left text-sm text-red-800 mb-4">
+                            <p className="font-bold flex items-center gap-2 mb-2"><AlertCircle size={16}/> {repairErrorMsg || 'Novas Funcionalidades Requerem Atualização'}</p>
+                            <p>Para corrigir a vinculação de contas e notificações, execute o script V9 abaixo.</p>
+                        </div>
+                  </div>
+
+                  {/* SQL REPAIR BOX */}
+                  <div className="text-left mb-6 bg-slate-50 border border-slate-200 rounded-lg p-4">
+                      <h3 className="font-bold text-slate-800 flex items-center gap-2 mb-2">
+                          <Database size={18} />
+                          Script de Atualização (V9)
+                      </h3>
+                      <ol className="list-decimal list-inside text-xs text-slate-500 mb-3 space-y-1">
+                          <li>Copie o código SQL abaixo.</li>
+                          <li>Vá ao <strong>Supabase Dashboard</strong> {'>'} <strong>SQL Editor</strong>.</li>
+                          <li>Cole o código e clique em <strong>RUN</strong>.</li>
+                          <li>Após rodar com sucesso, clique em "Tentar Novamente" abaixo.</li>
+                      </ol>
+                      <div className="relative">
+                          <pre className="bg-slate-800 text-slate-200 p-3 rounded text-[10px] overflow-x-auto whitespace-pre-wrap font-mono h-48">
+                              {SQL_SCRIPT}
+                          </pre>
+                          <button 
+                            onClick={() => navigator.clipboard.writeText(SQL_SCRIPT)}
+                            className="absolute top-2 right-2 p-1.5 bg-slate-700 text-white rounded hover:bg-slate-600 flex items-center gap-1 text-xs"
+                            title="Copiar"
+                          >
+                              <Copy size={12} /> Copiar
+                          </button>
+                      </div>
+                  </div>
+                  
+                  {/* ACTIONS */}
+                  <div className="flex flex-col gap-3">
+                     <button 
+                        onClick={() => window.location.reload()} 
+                        className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-medium flex items-center justify-center gap-2 transition-colors"
+                     >
+                        <RefreshCw size={18} />
+                        Já executei o SQL, Tentar Novamente
+                     </button>
+                     
+                     <div className="border-t border-gray-100 pt-3 mt-1">
+                        <button onClick={handleLogout} className="text-brand-secondary hover:underline font-medium text-sm">Sair e tentar outra conta</button>
+                     </div>
+                  </div>
+              </div>
+          </div>
+      )
   }
 
   const accessLevel = userProfile?.accessLevel || 'volunteer';
@@ -275,7 +566,7 @@ const App: React.FC = () => {
   const canManageVolunteers = accessLevel === 'admin' || accessLevel === 'leader';
   const canManageSettings = accessLevel === 'admin';
 
-  // Notification Logic (Updated for Teams)
+  // Notification Logic
   const myNextAssignment = userProfile && accessLevel === 'volunteer' 
     ? services
         .filter(s => new Date(s.date) >= new Date() && s.assignments.some(a => {
@@ -288,18 +579,6 @@ const App: React.FC = () => {
         }))
         .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())[0]
     : null;
-
-  // Stats Logic (Updated for Teams)
-  const myTotalAssignments = userProfile 
-    ? services.filter(s => s.assignments.some(a => {
-        if (a.volunteerId === userProfile.id) return true;
-        if (a.teamId) {
-            const t = teams.find(team => team.id === a.teamId);
-            return t?.memberIds.includes(userProfile.id);
-        }
-        return false;
-    })).length 
-    : 0;
 
   // Helper component for Navigation Items
   const NavItem = ({ id, icon: Icon, label, onClick, isMobile = false }: any) => {
@@ -347,9 +626,11 @@ const App: React.FC = () => {
             <div className="text-brand-primary p-1 rounded-lg shrink-0">
                <IASDLogo className="w-10 h-10" />
             </div>
-            <div>
-              <h1 className="font-bold text-brand-secondary text-xl leading-none">Voluntário</h1>
-              <p className="text-sm font-medium text-brand-muted mt-0.5">IASD Bosque</p>
+            <div className="min-w-0">
+              <h1 className="font-bold text-brand-secondary text-lg leading-none truncate" title={currentOrg?.name}>
+                  {currentOrg?.name || 'Bem-vindo'}
+              </h1>
+              <p className="text-xs font-medium text-brand-muted mt-0.5">{currentOrg ? 'Gestão de Escalas' : 'Sem Organização'}</p>
             </div>
         </div>
 
@@ -373,21 +654,34 @@ const App: React.FC = () => {
         
         {/* Sidebar Footer */}
         <div className="p-6 border-t border-brand-muted/10 bg-brand-bg/30">
-            {userProfile && (
-            <div className="mb-4 flex items-center gap-3 px-3 py-2 bg-white rounded-lg shadow-sm border border-brand-muted/10">
-                <div className="w-8 h-8 rounded-full bg-brand-primary text-white flex items-center justify-center text-sm font-bold shrink-0">
-                    {userProfile.name.charAt(0)}
-                </div>
-                <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate" title={userProfile.name}>{userProfile.name}</p>
-                    <p className="text-xs text-brand-muted font-bold uppercase tracking-wider">
-                    {accessLevel === 'leader' ? 'Líder' : accessLevel === 'admin' ? 'Admin' : 'Voluntário'}
-                    </p>
-                </div>
-                <button onClick={handleLogout} className="text-brand-muted hover:text-red-500 transition-colors" title="Sair">
-                    <LogOut size={16} />
-                </button>
+            {userProfile ? (
+            <div className="mb-4 flex flex-col gap-3">
+              <div className="flex items-center gap-3 px-3 py-2 bg-white rounded-lg shadow-sm border border-brand-muted/10">
+                  <div className="w-8 h-8 rounded-full bg-brand-primary text-white flex items-center justify-center text-sm font-bold shrink-0">
+                      {userProfile.name.charAt(0)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate" title={userProfile.name}>{userProfile.name}</p>
+                      <p className="text-xs text-brand-muted font-bold uppercase tracking-wider">
+                      {accessLevel === 'leader' ? 'Líder' : accessLevel === 'admin' ? 'Admin' : 'Voluntário'}
+                      </p>
+                  </div>
+                  <button onClick={handleLogout} className="text-brand-muted hover:text-red-500 transition-colors" title="Sair">
+                      <LogOut size={16} />
+                  </button>
+              </div>
+              
+              {/* Notificação Toggle Desktop */}
+              <div className="flex justify-center">
+                  <NotificationToggle userId={userProfile.id} />
+              </div>
             </div>
+            ) : (
+                <div className="mb-4 text-center">
+                    <button onClick={handleLogout} className="text-brand-muted hover:text-red-500 transition-colors flex items-center justify-center gap-2 w-full p-2 hover:bg-white rounded">
+                        <LogOut size={16} /> Sair
+                    </button>
+                </div>
             )}
         </div>
       </aside>
@@ -398,24 +692,42 @@ const App: React.FC = () => {
       
           {/* Mobile Header (Simplified) */}
           <header className="md:hidden bg-white border-b border-brand-muted/20 h-16 shrink-0 flex items-center justify-between px-4 shadow-sm z-20 print:hidden">
-             <div className="flex items-center gap-3">
-                  <div className="text-brand-primary"><IASDLogo className="w-8 h-8" /></div>
-                  <div>
-                      <h1 className="font-bold text-brand-secondary text-lg leading-none">Voluntário</h1>
-                      <p className="text-xs text-brand-muted">IASD Bosque</p>
+             <div className="flex items-center gap-3 min-w-0">
+                  <div className="text-brand-primary shrink-0"><IASDLogo className="w-8 h-8" /></div>
+                  <div className="min-w-0">
+                      <h1 className="font-bold text-brand-secondary text-base leading-none truncate">{currentOrg?.name || 'Bem-vindo'}</h1>
+                      <p className="text-[10px] text-brand-muted">{currentOrg ? 'Gestão de Escalas' : 'Sem Organização'}</p>
                   </div>
               </div>
-              <button onClick={handleLogout} className="text-brand-muted hover:text-red-500">
-                  <LogOut size={20} />
-              </button>
+              <div className="flex items-center gap-2">
+                 {/* Notificação Toggle Mobile */}
+                 <NotificationToggle userId={userProfile?.id} />
+                 <button onClick={handleLogout} className="text-brand-muted hover:text-red-500 shrink-0">
+                     <LogOut size={20} />
+                 </button>
+              </div>
           </header>
 
           {/* Main Scrollable Area */}
           <main className="flex-1 overflow-y-auto p-4 md:p-8 pb-24 md:pb-8 print:p-0 print:overflow-visible"> 
             <div className="max-w-5xl mx-auto print:max-w-none">
                 
+                {/* Fallback View for No Organization */}
+                {!currentOrg && !loading && !needsDbRepair && (
+                    <div className="flex flex-col items-center justify-center py-12 text-center animate-fade-in">
+                        <div className="bg-brand-bg p-6 rounded-full mb-4">
+                            <Building size={48} className="text-brand-muted" />
+                        </div>
+                        <h2 className="text-xl font-bold text-brand-secondary mb-2">Nenhuma Igreja Vinculada</h2>
+                        <p className="text-brand-muted max-w-md mb-6">
+                            Você está logado, mas sua conta ainda não faz parte de nenhuma organização. 
+                            Peça para o líder do seu ministério te adicionar na equipe.
+                        </p>
+                    </div>
+                )}
+
                 {/* Volunteer Notification Banner */}
-                {myNextAssignment && (
+                {myNextAssignment && currentOrg && (
                     <div className="mb-6 bg-brand-accent/20 border border-brand-accent rounded-xl p-4 flex items-center gap-4 animate-fade-in print:hidden">
                         <div className="bg-brand-primary text-white p-3 rounded-full">
                             <Bell size={20} />
@@ -429,7 +741,7 @@ const App: React.FC = () => {
                     </div>
                 )}
 
-                {activeTab === 'schedule' && (
+                {activeTab === 'schedule' && currentOrg && (
                   <div className="animate-fade-in">
                     <ScheduleView 
                       services={services} 
@@ -447,7 +759,7 @@ const App: React.FC = () => {
                   </div>
                 )}
 
-                {activeTab === 'volunteers' && canManageVolunteers && (
+                {activeTab === 'volunteers' && canManageVolunteers && currentOrg && (
                   <div className="animate-fade-in">
                     <VolunteerList 
                       volunteers={volunteers} 
@@ -459,7 +771,7 @@ const App: React.FC = () => {
                   </div>
                 )}
 
-                {activeTab === 'teams' && canManageVolunteers && (
+                {activeTab === 'teams' && canManageVolunteers && currentOrg && (
                   <div className="animate-fade-in">
                     <TeamList 
                       teams={teams}
@@ -472,7 +784,7 @@ const App: React.FC = () => {
                   </div>
                 )}
 
-                {activeTab === 'ministries' && canManageSettings && (
+                {activeTab === 'ministries' && canManageSettings && currentOrg && (
                   <div className="animate-fade-in">
                     <MinistryList 
                       ministries={ministries}
@@ -482,7 +794,7 @@ const App: React.FC = () => {
                   </div>
                 )}
 
-                {activeTab === 'eventTypes' && canManageSettings && (
+                {activeTab === 'eventTypes' && canManageSettings && currentOrg && (
                   <div className="animate-fade-in">
                     <EventTypeList 
                       eventTypes={eventTypes}
@@ -499,14 +811,14 @@ const App: React.FC = () => {
           <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-brand-muted/20 h-16 flex items-center justify-around px-2 z-50 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] print:hidden">
               <NavItem isMobile={true} id="schedule" icon={Calendar} label="Escalas" onClick={() => handleNavClick('schedule')} />
               
-              {canManageVolunteers && (
+              {canManageVolunteers && currentOrg && (
                 <>
                   <NavItem isMobile={true} id="volunteers" icon={Users} label="Pessoas" onClick={() => handleNavClick('volunteers')} />
                   <NavItem isMobile={true} id="teams" icon={Shield} label="Equipes" onClick={() => handleNavClick('teams')} />
                 </>
               )}
 
-              {canManageSettings && (
+              {canManageSettings && currentOrg && (
                  <button
                     onClick={() => handleNavClick('ministries')}
                     className={`flex flex-col items-center justify-center w-full py-1 transition-colors ${
