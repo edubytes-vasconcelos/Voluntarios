@@ -922,6 +922,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS teams_org_name_idx ON public.teams (organizati
                       onLogAction={handleLogAction}
                       readOnly={!canManageSchedule}
                       currentUserId={userProfile?.id}
+                      // Pass currentOrg prop
+                      currentOrg={currentOrg}
                     />
                   </div>
                 )}
