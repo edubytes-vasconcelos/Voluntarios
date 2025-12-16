@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { db } from '../services/db';
@@ -481,7 +480,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS teams_org_name_idx ON public.teams (organizati
             <IASDLogoLarge className="w-16 h-16" />
           </div>
           <h1 className="text-2xl font-bold text-brand-secondary">
-            {viewState === 'register_church' ? 'Nova Igreja' : viewState === 'register_user' ? 'Criar Conta' : 'Bem-vindo'}
+            {viewState === 'register_church' ? 'Nova Igreja' : viewState === 'register_user' ? 'Criar Conta' : 'Bem-vindo!'}
           </h1>
           <p className="text-brand-muted text-sm text-center">
             {viewState === 'register_church' ? 'Cadastre sua congregação e comece a gerenciar escalas.' : 
@@ -576,3 +575,4 @@ CREATE UNIQUE INDEX IF NOT EXISTS teams_org_name_idx ON public.teams (organizati
 };
 
 export default Login;
+    
