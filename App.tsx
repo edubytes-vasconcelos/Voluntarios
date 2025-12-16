@@ -1,16 +1,17 @@
 
+
 import React, { useState, useEffect, useRef } from 'react';
-import { Volunteer, ServiceEvent, Ministry, EventType, AccessLevel, Team, AuditLogEntry, Organization } from '@/types';
+import { Volunteer, ServiceEvent, Ministry, EventType, AccessLevel, Team, AuditLogEntry, Organization } from './types';
 // Removed unused INITIAL_* imports to prevent accidental inheritance of sample data
-import VolunteerList from '@/components/VolunteerList';
-import ScheduleView from '@/components/ScheduleView';
-import MinistryList from '@/components/MinistryList';
-import EventTypeList from '@/components/EventTypeList';
-import TeamList from '@/components/TeamList';
-import Login from '@/components/Login';
-import NotificationToggle from '@/components/NotificationToggle';
-import { db, clearDbOrganizationId } from '@/services/db';
-import { supabase } from '@/services/supabaseClient';
+import VolunteerList from './components/VolunteerList';
+import ScheduleView from './components/ScheduleView';
+import MinistryList from './components/MinistryList';
+import EventTypeList from './components/EventTypeList';
+import TeamList from './components/TeamList';
+import Login from './components/Login';
+import NotificationToggle from './components/NotificationToggle';
+import { db, clearDbOrganizationId } from './services/db';
+import { supabase } from './services/supabaseClient';
 import { Users, Calendar, BookOpen, ListFilter, Loader2, AlertCircle, Database, LogOut, Bell, CheckCircle2, Shield, Menu, X, Settings, Building, RefreshCw, ArrowRight, Copy, Search } from 'lucide-react';
 
 // Custom Logo Component mimicking the IASD diamond structure

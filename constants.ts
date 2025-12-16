@@ -1,5 +1,4 @@
-
-import { Volunteer, ServiceEvent, RoleType, Ministry, EventType } from '@/types';
+import { Volunteer, ServiceEvent, RoleType, Ministry, EventType } from './types';
 import { 
   BookOpen, Music, Video, Users, 
   Baby, Car, Coffee, Mic, Shield, Heart, Camera, Speaker

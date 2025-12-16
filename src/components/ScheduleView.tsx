@@ -46,10 +46,16 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
   const [decliningAssignment, setDecliningAssignment] = useState<{serviceId: string, assignmentIndex: number} | null>(null);
   const [declineReasonText, setDeclineReasonText] = useState('');
 
-  // NEW STATES FOR MINISTRY FILTER
+  // NEW STATES FOR FILTERS & ACTIONS
   const [selectedMinistriesFilter, setSelectedMinistriesFilter] = useState<string[]>([]);
-  const [showMinistryFilterDropdown, setShowMinistryFilterDropdown] = useState(false);
-  const ministryFilterRef = useRef<HTMLDivElement>(null);
+  const [showFilterModal, setShowFilterModal] = useState(false); // Controla a abertura do modal de filtros (mobile)
+  const [showShareOptionsDropdown, setShowShareOptionsDropdown] = useState(false); // Controla o dropdown de compartilhar (mobile)
+  const shareOptionsRef = useRef<HTMLDivElement>(null); // Ref para o dropdown de compartilhar (mobile)
+
+  // NEW STATES FOR DESKTOP MINISTRY FILTER (separated from mobile share)
+  const [showDesktopMinistryFilterDropdown, setShowDesktopMinistryFilterDropdown] = useState(false);
+  const desktopMinistryFilterRef = useRef<HTMLDivElement>(null);
+
 
   useEffect(() => {
     if (userAccessLevel === 'volunteer') {
@@ -59,18 +65,22 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
     }
   }, [currentUserId, userAccessLevel]); 
 
-  // Close ministry filter dropdown when clicking outside
+  // Close mobile share options dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (ministryFilterRef.current && !ministryFilterRef.current.contains(event.target as Node)) {
-        setShowMinistryFilterDropdown(false);
+      if (shareOptionsRef.current && !shareOptionsRef.current.contains(event.target as Node)) {
+        setShowShareOptionsDropdown(false);
+      }
+      // Close desktop ministry filter dropdown when clicking outside
+      if (desktopMinistryFilterRef.current && !desktopMinistryFilterRef.current.contains(event.target as Node)) {
+        setShowDesktopMinistryFilterDropdown(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [ministryFilterRef]);
+  }, [shareOptionsRef, desktopMinistryFilterRef]);
 
   const [isAddingService, setIsAddingService] = useState(false);
   const [newServiceDate, setNewServiceDate] = useState('');
@@ -443,6 +453,7 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
 
   const handlePrint = () => {
     window.print();
+    setShowShareOptionsDropdown(false); // Close dropdown after action
   };
 
   const handleWhatsAppShare = () => {
@@ -478,9 +489,10 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
 
     const encoded = encodeURIComponent(message);
     window.open(`https://wa.me/?text=${encoded}`, '_blank');
+    setShowShareOptionsDropdown(false); // Close dropdown after action
   };
 
-  // Toggle ministry selection in filter
+  // Toggle ministry selection in filter (used in modal and desktop dropdown)
   const toggleMinistryFilter = (ministryName: string) => {
     setSelectedMinistriesFilter(prev =>
       prev.includes(ministryName)
@@ -489,124 +501,188 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
     );
   };
 
-  const clearMinistryFilter = () => {
+  const applyFilters = () => {
+    setShowFilterModal(false);
+    // Filters are already applied via state updates and useMemo
+  };
+
+  const clearAllFilters = () => {
+    setViewFilter(userAccessLevel === 'volunteer' ? 'mine' : 'all');
     setSelectedMinistriesFilter([]);
-    setShowMinistryFilterDropdown(false);
+    setShowFilterModal(false);
+    setShowDesktopMinistryFilterDropdown(false); // Also clear desktop dropdown
   };
 
   const availableEntities = assignmentType === 'volunteer' 
     ? (selectedRole ? volunteers.filter(v => v.roles.includes(selectedRole)) : volunteers)
     : teams; 
 
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (viewFilter === 'mine') count++; // 'Minha Escala' é um filtro ativo
+    count += selectedMinistriesFilter.length;
+    return count;
+  }, [viewFilter, selectedMinistriesFilter]);
+
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 no-print">
-        <div>
-          <h2 className="text-2xl font-bold text-brand-secondary">Escalas e Eventos</h2>
-          
-          <div className="flex flex-wrap gap-2 mt-3 bg-brand-bg rounded-lg p-1 border border-brand-muted/10 w-fit">
-            {/* View Filter (All/Mine) */}
-            <button
-              onClick={() => setViewFilter('all')}
-              className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
-                viewFilter === 'all'
-                  ? 'bg-white text-brand-primary shadow-sm'
-                  : 'text-brand-muted hover:text-brand-secondary'
-              }`}
-            >
-              <CalendarIcon size={16} />
-              Todos
-            </button>
-            <button
-              onClick={() => setViewFilter('mine')}
-              className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
-                viewFilter === 'mine'
-                  ? 'bg-white text-brand-primary shadow-sm'
-                  : 'text-brand-muted hover:text-brand-secondary'
-              }`}
-            >
-              <UserCheck size={16} />
-              Minha Escala
-            </button>
-
-            {/* Ministry Filter Dropdown */}
-            <div className="relative" ref={ministryFilterRef}>
-                <button
-                    onClick={() => setShowMinistryFilterDropdown(!showMinistryFilterDropdown)}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all bg-white border ${
-                        selectedMinistriesFilter.length > 0
-                            ? 'border-brand-primary text-brand-primary shadow-sm'
-                            : 'border-brand-muted/10 text-brand-muted hover:text-brand-secondary hover:bg-gray-50'
-                    }`}
-                >
-                    <Filter size={16} />
-                    <span>Ministérios {selectedMinistriesFilter.length > 0 ? `(${selectedMinistriesFilter.length})` : ''}</span>
-                    <ChevronDown size={16} className={`transition-transform ${showMinistryFilterDropdown ? 'rotate-180' : ''}`} />
-                </button>
-                {showMinistryFilterDropdown && (
-                    <div className="absolute left-0 mt-2 w-64 bg-white border border-brand-muted/20 rounded-lg shadow-lg z-40 max-h-60 overflow-y-auto">
-                        <div className="p-3 border-b border-brand-muted/10">
-                            <button
-                                onClick={clearMinistryFilter}
-                                className="w-full text-left text-xs text-brand-muted hover:text-brand-secondary hover:underline"
-                            >
-                                Limpar Filtro
-                            </button>
-                        </div>
-                        <div className="p-2 space-y-1">
-                            {ministries.map(ministry => (
-                                <label key={ministry.name} className="flex items-center gap-2 px-2 py-1 rounded cursor-pointer hover:bg-brand-bg">
-                                    <input
-                                        type="checkbox"
-                                        checked={selectedMinistriesFilter.includes(ministry.name)}
-                                        onChange={() => toggleMinistryFilter(ministry.name)}
-                                        className="rounded text-brand-primary focus:ring-brand-primary h-4 w-4"
-                                    />
-                                    <span className="text-sm">{ministry.name}</span>
-                                </label>
-                            ))}
-                            {ministries.length === 0 && (
-                              <p className="text-xs text-brand-muted px-2 py-1">Nenhum ministério cadastrado.</p>
-                            )}
-                        </div>
+      {/* HEADER: Título e Ações de Compartilhamento/Impressão */}
+      <div className="flex justify-between items-center mb-4 no-print">
+        <h2 className="text-2xl font-bold text-brand-secondary">Escalas e Eventos</h2>
+        
+        <div className="flex items-center gap-2">
+            {/* DESKTOP SHARE/PRINT & NEW EVENT BUTTON (HIDDEN ON MOBILE) */}
+            <div className="hidden md:flex items-center gap-2"> 
+                {displayedServices.length > 0 && (
+                    <div className="bg-white rounded-lg border border-brand-muted/20 shadow-sm overflow-hidden">
+                        <button 
+                            onClick={handleWhatsAppShare}
+                            className="p-2 text-green-600 hover:bg-green-50 border-r border-brand-muted/20"
+                            title="Compartilhar no WhatsApp"
+                        >
+                            <MessageCircle size={20} />
+                        </button>
+                        <button 
+                            onClick={handlePrint}
+                            className="p-2 text-gray-600 hover:bg-gray-50"
+                            title="Imprimir Escala (PDF)"
+                        >
+                            <Printer size={20} />
+                        </button>
                     </div>
                 )}
+                {!readOnly && (
+                    <button 
+                        onClick={() => {setIsAddingService(!isAddingService); setConflictAlert(null);}} 
+                        className="bg-brand-primary hover:bg-brand-primary-hover text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors shadow-sm"
+                    >
+                        <Plus size={20} />
+                        <span>Novo Evento</span>
+                    </button>
+                )}
             </div>
-          </div>
-        </div>
 
-        <div className="flex items-center gap-2 self-end md:self-auto">
-             {displayedServices.length > 0 && (
-                <div className="flex mr-2 bg-white rounded-lg border border-brand-muted/20 shadow-sm overflow-hidden">
+            {/* MOBILE SHARE (dropdown) (HIDDEN ON DESKTOP) */}
+            {displayedServices.length > 0 && (
+                <div className="relative md:hidden" ref={shareOptionsRef}>
                     <button 
-                        onClick={handleWhatsAppShare}
-                        className="p-2 text-green-600 hover:bg-green-50 border-r border-brand-muted/20"
-                        title="Compartilhar no WhatsApp"
+                        onClick={() => setShowShareOptionsDropdown(!showShareOptionsDropdown)}
+                        className="p-2 text-brand-muted hover:text-brand-secondary hover:bg-white rounded-full transition-colors"
+                        title="Compartilhar ou Imprimir"
                     >
-                        <MessageCircle size={20} />
+                        <Share2 size={20} />
                     </button>
-                    <button 
-                        onClick={handlePrint}
-                        className="p-2 text-gray-600 hover:bg-gray-50"
-                        title="Imprimir Escala (PDF)"
-                    >
-                        <Printer size={20} />
-                    </button>
+                    {showShareOptionsDropdown && (
+                        <div className="absolute right-0 mt-2 w-48 bg-white border border-brand-muted/20 rounded-lg shadow-lg z-40 overflow-hidden animate-fade-in-down-x">
+                            <button 
+                                onClick={handleWhatsAppShare}
+                                className="w-full text-left px-4 py-2 text-sm text-brand-secondary hover:bg-brand-bg flex items-center gap-2"
+                            >
+                                <MessageCircle size={16} className="text-green-600" /> WhatsApp
+                            </button>
+                            <button 
+                                onClick={handlePrint}
+                                className="w-full text-left px-4 py-2 text-sm text-brand-secondary hover:bg-brand-bg flex items-center gap-2"
+                            >
+                                <Printer size={16} className="text-gray-600" /> Imprimir (PDF)
+                            </button>
+                        </div>
+                    )}
                 </div>
-             )}
-
-            {!readOnly && (
-            <button
-                onClick={() => {setIsAddingService(!isAddingService); setConflictAlert(null);}} // Clear conflict alert when opening/closing
-                className="bg-brand-primary hover:bg-brand-primary-hover text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors shadow-sm"
-            >
-                <Plus size={20} />
-                <span className="hidden sm:inline">Novo Evento</span>
-                <span className="sm:hidden">Novo</span>
-            </button>
             )}
         </div>
       </div>
+
+      {/* FILTROS: Desktop (visível) vs Mobile (botão que abre modal) */}
+      
+      {/* Filtros para Desktop */}
+      <div className="hidden md:flex flex-wrap gap-2 mb-6 bg-brand-bg rounded-lg p-1 border border-brand-muted/10 w-fit no-print">
+          {/* View Filter (All/Mine) */}
+          <button
+            onClick={() => setViewFilter('all')}
+            className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
+              viewFilter === 'all'
+                ? 'bg-white text-brand-primary shadow-sm'
+                : 'text-brand-muted hover:text-brand-secondary'
+            }`}
+          >
+            <CalendarIcon size={16} />
+            Todos
+          </button>
+          <button
+            onClick={() => setViewFilter('mine')}
+            className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
+              viewFilter === 'mine'
+                ? 'bg-white text-brand-primary shadow-sm'
+                : 'text-brand-muted hover:text-brand-secondary'
+            }`}
+          >
+            <UserCheck size={16} />
+            Minha Escala
+          </button>
+
+          {/* Ministry Filter Dropdown (Desktop only) */}
+          <div className="relative" ref={desktopMinistryFilterRef}>
+              <button
+                  onClick={() => setShowDesktopMinistryFilterDropdown(!showDesktopMinistryFilterDropdown)}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all bg-white border ${
+                      selectedMinistriesFilter.length > 0
+                          ? 'border-brand-primary text-brand-primary shadow-sm'
+                          : 'border-brand-muted/10 text-brand-muted hover:text-brand-secondary hover:bg-gray-50'
+                  }`}
+              >
+                  <Filter size={16} />
+                  <span>Ministérios {selectedMinistriesFilter.length > 0 ? `(${selectedMinistriesFilter.length})` : ''}</span>
+                  <ChevronDown size={16} className={`transition-transform ${showDesktopMinistryFilterDropdown ? 'rotate-180' : ''}`} />
+              </button>
+              {showDesktopMinistryFilterDropdown && (
+                  <div className="absolute left-0 mt-2 w-64 bg-white border border-brand-muted/20 rounded-lg shadow-lg z-40 max-h-60 overflow-y-auto">
+                      <div className="p-3 border-b border-brand-muted/10">
+                          <button
+                              onClick={clearAllFilters} // Clears both view and ministry filters
+                              className="w-full text-left text-xs text-brand-muted hover:text-brand-secondary hover:underline"
+                          >
+                              Limpar Filtro
+                          </button>
+                      </div>
+                      <div className="p-2 space-y-1">
+                          {ministries.map(ministry => (
+                              <label key={ministry.name} className="flex items-center gap-2 px-2 py-1 rounded cursor-pointer hover:bg-brand-bg">
+                                  <input
+                                      type="checkbox"
+                                      checked={selectedMinistriesFilter.includes(ministry.name)}
+                                      onChange={() => toggleMinistryFilter(ministry.name)}
+                                      className="rounded text-brand-primary focus:ring-brand-primary h-4 w-4"
+                                  />
+                                  <span className="text-sm">{ministry.name}</span>
+                              </label>
+                          ))}
+                          {ministries.length === 0 && (
+                            <p className="text-xs text-brand-muted px-2 py-1">Nenhum ministério cadastrado.</p>
+                          )}
+                      </div>
+                  </div>
+              )}
+          </div>
+        </div>
+
+      {/* Botão de Filtro (MOBILE-ONLY) - Abaixo do header principal */}
+      <div className="flex md:hidden justify-between items-center w-full mb-6 no-print">
+        <button
+          onClick={() => setShowFilterModal(true)}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all border ${
+            activeFilterCount > 0 
+                ? 'bg-brand-accent/20 border-brand-primary text-brand-primary shadow-sm'
+                : 'bg-white border-brand-muted/20 text-brand-muted hover:bg-brand-bg hover:text-brand-secondary'
+          }`}
+        >
+          <Filter size={16} />
+          <span>Filtros {activeFilterCount > 0 && `(${activeFilterCount})`}</span>
+          <ChevronDown size={16} />
+        </button>
+      </div>
+
 
       {isAddingService && !readOnly && (
         <div className="bg-white p-6 rounded-xl border border-brand-accent/50 shadow-md animate-fade-in-down no-print">
@@ -754,7 +830,7 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
               </button>
             )}
             {selectedMinistriesFilter.length > 0 && (
-              <button onClick={clearMinistryFilter} className="mt-2 ml-4 text-brand-primary hover:underline text-sm">
+              <button onClick={clearAllFilters} className="mt-2 ml-4 text-brand-primary hover:underline text-sm">
                 Limpar filtro de ministérios
               </button>
             )}
@@ -1033,8 +1109,92 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
           );
         })}
       </div>
+
+      {/* Floating Action Button for 'Novo Evento' - Mobile Only */}
+      {/* This FAB is managed in App.tsx now. No direct changes here, but ensuring the inline 'Novo Evento' button is hidden on mobile */}
+
+      {/* Filter Modal / Bottom Sheet */}
+      {showFilterModal && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center animate-fade-in no-print"
+          onClick={() => setShowFilterModal(false)}
+        >
+          <div 
+            className="bg-white p-6 rounded-t-2xl shadow-lg w-full max-w-md animate-slide-up"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-xl font-bold text-brand-secondary mb-4 flex items-center gap-2">
+              <Filter size={20} />
+              Filtros
+            </h3>
+            
+            <div className="mb-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-brand-secondary mb-2">Visualizar:</label>
+                <div className="flex gap-2 bg-brand-bg rounded-lg p-1 border border-brand-muted/10">
+                  <button
+                    onClick={() => setViewFilter('all')}
+                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                      viewFilter === 'all'
+                        ? 'bg-white text-brand-primary shadow-sm'
+                        : 'text-brand-muted hover:text-brand-secondary'
+                    }`}
+                  >
+                    <CalendarIcon size={16} /> Todos
+                  </button>
+                  <button
+                    onClick={() => setViewFilter('mine')}
+                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                      viewFilter === 'mine'
+                        ? 'bg-white text-brand-primary shadow-sm'
+                        : 'text-brand-muted hover:text-brand-secondary'
+                    }`}
+                  >
+                    <UserCheck size={16} /> Minha Escala
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-brand-secondary mb-2">Ministérios:</label>
+                <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto p-2 bg-brand-bg/30 rounded-lg border border-brand-muted/10">
+                  {ministries.length > 0 ? ministries.map(ministry => (
+                    <label key={ministry.name} className="flex items-center gap-2 px-2 py-1 rounded cursor-pointer hover:bg-white/50">
+                      <input
+                        type="checkbox"
+                        checked={selectedMinistriesFilter.includes(ministry.name)}
+                        onChange={() => toggleMinistryFilter(ministry.name)}
+                        className="rounded text-brand-primary focus:ring-brand-primary h-4 w-4"
+                      />
+                      <span className="text-sm">{ministry.name}</span>
+                    </label>
+                  )) : (
+                    <p className="col-span-2 text-xs text-brand-muted text-center py-2">Nenhum ministério cadastrado.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-between gap-3 pt-4 border-t border-brand-muted/10">
+              <button 
+                onClick={clearAllFilters}
+                className="px-4 py-2 text-brand-muted hover:text-brand-secondary rounded-lg"
+              >
+                Limpar Todos
+              </button>
+              <button 
+                onClick={applyFilters}
+                className="bg-brand-primary hover:bg-brand-primary-hover text-white px-6 py-2 rounded-lg font-medium transition-colors flex items-center gap-2"
+              >
+                <CheckCircle2 size={18} /> Aplicar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
 export default ScheduleView;
+    

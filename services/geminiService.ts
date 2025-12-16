@@ -1,7 +1,5 @@
-
-
 import { GoogleGenAI, Type } from "@google/genai";
-import { Volunteer, ServiceEvent, RoleType, GeneratedScheduleResponse } from '@/types';
+import { Volunteer, ServiceEvent, RoleType } from '../types';
 
 // Initialize Gemini Client
 // The API key must be obtained exclusively from the environment variable process.env.API_KEY.
@@ -78,11 +76,11 @@ export const generateScheduleWithAI = async (
     const jsonText = response.text;
     if (!jsonText) throw new Error("No content generated");
     
-    const parsed: GeneratedScheduleResponse = JSON.parse(jsonText);
+    const parsed = JSON.parse(jsonText);
     
     // Map response back to application structure (linking names to IDs)
-    const newServices: ServiceEvent[] = parsed.services.map((svc: GeneratedScheduleResponse['services'][number], index: number) => {
-      const validAssignments = svc.assignments.map((assignment: { role: string; volunteerName: string }) => {
+    const newServices: ServiceEvent[] = parsed.services.map((svc: any, index: number) => {
+      const validAssignments = svc.assignments.map((assignment: any) => {
         const vol = volunteers.find(v => v.name === assignment.volunteerName);
         if (!vol) return null;
         return {

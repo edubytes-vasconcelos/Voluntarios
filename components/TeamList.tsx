@@ -1,8 +1,7 @@
 
 
-
 import React, { useState, useMemo } from 'react';
-import { Team, Volunteer } from '@/types';
+import { Team, Volunteer } from '../types';
 import { Users, Plus, Trash2, Check, X, Shield, Pencil, AlertCircle, Loader2 } from 'lucide-react'; // Adicionado AlertCircle e Loader2
 
 interface TeamListProps {

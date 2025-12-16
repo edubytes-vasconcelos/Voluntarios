@@ -1,7 +1,6 @@
 
-
 import { supabase } from './supabaseClient';
-import { Volunteer, Ministry, ServiceEvent, EventType, Team, AuditLogEntry, Organization } from '@/types';
+import { Volunteer, Ministry, ServiceEvent, EventType, Team, AuditLogEntry, Organization } from '../types';
 
 let currentOrganizationId: string | null = null;
 

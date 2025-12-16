@@ -1,8 +1,7 @@
 
-
 import React, { useState, useEffect } from 'react';
 import { Bell, BellOff, Loader2, AlertTriangle, Check } from 'lucide-react';
-import { db } from '@/services/db';
+import { db } from '../services/db';
 
 interface NotificationToggleProps {
   userId?: string;
