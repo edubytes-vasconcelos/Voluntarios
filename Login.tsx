@@ -480,12 +480,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS teams_org_name_idx ON public.teams (organizati
             <IASDLogoLarge className="w-16 h-16" />
           </div>
           <h1 className="text-2xl font-bold text-brand-secondary">
-            {viewState === 'register_church' ? 'Nova Igreja' : viewState === 'register_user' ? 'Criar Conta' : 'Olá!'}
+            {viewState === 'register_church' ? 'Nova Igreja' : viewState === 'register_user' ? 'Criar Conta' : 'Seja Bem-vindo(a)!'}
           </h1>
           <p className="text-brand-muted text-sm text-center">
             {viewState === 'register_church' ? 'Cadastre sua congregação e comece a gerenciar escalas.' : 
              viewState === 'register_user' ? 'Crie seu perfil de voluntário.' : 
-             'Faça login para acessar o sistema.'}
+             'Por favor, faça login para acessar o sistema.'}
           </p>
         </div>
 
