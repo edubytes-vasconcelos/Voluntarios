@@ -1,34 +1,29 @@
-
 {
   "compilerOptions": {
-    "target": "ES2020",
-    "lib": ["DOM", "DOM.Iterable", "ES2020"],
+    "target": "ES2022",
+    "experimentalDecorators": true,
+    "useDefineForClassFields": false,
     "module": "ESNext",
-    "moduleResolution": "Node",
-    "jsx": "react-jsx",
-
-    "strict": true,
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "skipLibCheck": true,
-
-    "esModuleInterop": true,
-    "allowSyntheticDefaultImports": true,
-
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["./*"]
-    },
-
-    "resolveJsonModule": true,
+    "types": [
+      "node"
+    ],
+    "moduleResolution": "bundler",
     "isolatedModules": true,
+    "moduleDetection": "force",
+    "allowJs": true,
+    "jsx": "react-jsx",
+    "paths": {
+      "@/*": [
+        "./*"
+      ]
+    },
+    "allowImportingTsExtensions": true,
     "noEmit": true
-  },
-  "include": [
-    "*.ts",
-    "*.tsx",
-    "components/**/*.tsx",
-    "services/**/*.ts",
-    "hooks/**/*.ts"
-  ],
-  "exclude": ["node_modules", "dist", "supabase"]
+  }
 }
-    
