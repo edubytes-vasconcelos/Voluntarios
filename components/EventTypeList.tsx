@@ -1,10 +1,11 @@
+
 import React, { useState } from 'react';
 import { EventType } from '../types';
-import { Plus, Trash2, Calendar, Tag } from 'lucide-react';
+import { Plus, Trash2, Calendar, Tag, AlertCircle, Loader2 } from 'lucide-react'; // Adicionado AlertCircle e Loader2
 
 interface EventTypeListProps {
   eventTypes: EventType[];
-  onAddEventType: (eventType: EventType) => void;
+  onAddEventType: (eventType: EventType) => Promise<void> | void; // Alterado para Promise<void>
   onRemoveEventType: (id: string) => void;
 }
 
@@ -22,16 +23,43 @@ const COLORS = [
 const EventTypeList: React.FC<EventTypeListProps> = ({ eventTypes, onAddEventType, onRemoveEventType }) => {
   const [newName, setNewName] = useState('');
   const [selectedColor, setSelectedColor] = useState(COLORS[0].value);
+  const [isSubmitting, setIsSubmitting] = useState(false); // Novo estado para loading
+  const [alertMessage, setAlertMessage] = useState<string | null>(null); // Novo estado para mensagens de alerta
 
-  const handleAdd = () => {
-    if (newName.trim()) {
-      onAddEventType({
-        id: `type-${Date.now()}`,
-        name: newName.trim(),
-        color: selectedColor
-      });
-      setNewName('');
-      setSelectedColor(COLORS[0].value);
+  const handleAdd = async () => {
+    const trimmedName = newName.trim();
+    if (trimmedName && !isSubmitting) {
+      setIsSubmitting(true);
+      setAlertMessage(null); // Limpa alertas anteriores
+
+      try {
+        // Validação client-side para evitar requisição desnecessária
+        const exists = eventTypes.some(et => et.name.toLowerCase() === trimmedName.toLowerCase());
+        if (exists) {
+          setAlertMessage(`O tipo de evento "${trimmedName}" já existe nesta igreja (verifique a lista).`);
+          setIsSubmitting(false);
+          return;
+        }
+
+        await onAddEventType({
+          id: `type-${Date.now()}`,
+          name: trimmedName,
+          color: selectedColor
+        });
+        setNewName('');
+        setSelectedColor(COLORS[0].value);
+        setAlertMessage(null); // Limpa alerta em caso de sucesso
+
+      } catch (error: any) {
+        console.error("Erro ao adicionar tipo de evento:", error);
+        if (error.message === 'EVENT_TYPE_EXISTS') {
+          setAlertMessage(`Erro: O tipo de evento "${trimmedName}" já existe na base de dados.`);
+        } else {
+          setAlertMessage('Erro ao adicionar tipo de evento. Tente novamente ou verifique se o script SQL está atualizado.');
+        }
+      } finally {
+        setIsSubmitting(false);
+      }
     }
   };
 
@@ -50,6 +78,13 @@ const EventTypeList: React.FC<EventTypeListProps> = ({ eventTypes, onAddEventTyp
           Novo Tipo de Evento
         </h3>
         
+        {alertMessage && (
+            <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg flex items-start gap-2 text-sm border border-red-100 animate-fade-in">
+              <AlertCircle size={16} className="mt-0.5 shrink-0" />
+              <span>{alertMessage}</span>
+            </div>
+        )}
+
         <div className="space-y-4">
             <div>
                 <label className="block text-sm font-medium text-brand-secondary mb-2">1. Cor de Identificação</label>
@@ -81,16 +116,17 @@ const EventTypeList: React.FC<EventTypeListProps> = ({ eventTypes, onAddEventTyp
                             value={newName}
                             onChange={(e) => setNewName(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-                            className="w-full border border-brand-muted/30 rounded-lg pl-10 pr-4 py-2.5 focus:ring-2 focus:ring-brand-primary focus:outline-none bg-brand-bg/50"
+                            disabled={isSubmitting}
+                            className="w-full border border-brand-muted/30 rounded-lg pl-10 pr-4 py-2.5 focus:ring-2 focus:ring-brand-primary focus:outline-none bg-brand-bg/50 disabled:opacity-70"
                             placeholder="Ex: Culto da Vitória, Reunião de Oração..."
                         />
                     </div>
                     <button 
                         onClick={handleAdd}
-                        disabled={!newName.trim()}
-                        className="bg-brand-primary hover:bg-brand-primary-hover disabled:bg-brand-muted/50 disabled:cursor-not-allowed text-white px-6 py-2.5 rounded-lg font-medium transition-colors"
+                        disabled={!newName.trim() || isSubmitting}
+                        className="bg-brand-primary hover:bg-brand-primary-hover disabled:bg-brand-muted/50 disabled:cursor-not-allowed text-white px-6 py-2.5 rounded-lg font-medium transition-colors flex items-center gap-2"
                     >
-                        Adicionar
+                        {isSubmitting ? <Loader2 size={18} className="animate-spin"/> : 'Adicionar'}
                     </button>
                 </div>
             </div>

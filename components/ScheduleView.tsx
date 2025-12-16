@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { ServiceEvent, Volunteer, Assignment, Ministry, EventType, Team, AssignmentStatus } from '../types';
-import { Calendar as CalendarIcon, Users, Trash2, Plus, X, Save, BookOpen, AlertCircle, Filter, UserCheck, Shield, Repeat, Share2, Printer, MessageCircle, CheckCircle2, XCircle, Clock, AlertTriangle, Loader2, Send } from 'lucide-react';
+import { Calendar as CalendarIcon, Users, Trash2, Plus, X, Save, BookOpen, AlertCircle, Filter, UserCheck, Shield, Repeat, Share2, Printer, MessageCircle, CheckCircle2, XCircle, Clock, AlertTriangle, Loader2, Send, ChevronDown } from 'lucide-react';
 import { AVAILABLE_ICONS } from '../constants';
 
 interface ScheduleViewProps {
@@ -46,13 +46,31 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
   const [decliningAssignment, setDecliningAssignment] = useState<{serviceId: string, assignmentIndex: number} | null>(null);
   const [declineReasonText, setDeclineReasonText] = useState('');
 
+  // NEW STATES FOR MINISTRY FILTER
+  const [selectedMinistriesFilter, setSelectedMinistriesFilter] = useState<string[]>([]);
+  const [showMinistryFilterDropdown, setShowMinistryFilterDropdown] = useState(false);
+  const ministryFilterRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (userAccessLevel === 'volunteer') {
       setViewFilter('mine');
     } else {
       setViewFilter('all');
     }
-  }, [currentUserId]); 
+  }, [currentUserId, userAccessLevel]); 
+
+  // Close ministry filter dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (ministryFilterRef.current && !ministryFilterRef.current.contains(event.target as Node)) {
+        setShowMinistryFilterDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [ministryFilterRef]);
 
   const [isAddingService, setIsAddingService] = useState(false);
   const [newServiceDate, setNewServiceDate] = useState('');
@@ -137,7 +155,8 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
 
   const sortedServices = [...services].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-  const displayedServices = sortedServices.filter(service => {
+  // First filter by 'all' or 'mine'
+  const filteredByViewFilter = sortedServices.filter(service => {
     if (viewFilter === 'mine') {
       return currentUserId && service.assignments.some(a => {
           if (a.volunteerId === currentUserId) return true;
@@ -149,6 +168,14 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
       });
     }
     return true;
+  });
+
+  // Then filter by selected ministries
+  const displayedServices = filteredByViewFilter.filter(service => {
+    if (selectedMinistriesFilter.length === 0) return true; // No ministry filter applied
+    return service.assignments.some(assignment =>
+      selectedMinistriesFilter.includes(assignment.role)
+    );
   });
 
   const isFormValid = useMemo(() => {
@@ -183,9 +210,30 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
       return false;
   }, [isRecurring, recurringEndDate, maxRecurDateStr]);
 
+  // NEW STATE FOR CONFLICT ALERTS
+  const [conflictAlert, setConflictAlert] = useState<{ message: string; conflictingDates: string[] } | null>(null);
+
   // --- ACTIONS HANDLERS ---
 
+  const generateDatesToCreate = (startDate: string, endDate: string | null, isRec: boolean): string[] => {
+    const dates: string[] = [];
+    if (isRec && endDate) {
+      let currentDateObj = new Date(startDate + 'T12:00:00'); 
+      const endDateObj = new Date(endDate + 'T12:00:00');
+      
+      while (currentDateObj <= endDateObj) {
+          dates.push(currentDateObj.toISOString().split('T')[0]);
+          currentDateObj.setDate(currentDateObj.getDate() + 7);
+      }
+    } else {
+        dates.push(startDate);
+    }
+    return dates;
+  }
+
   const handleSaveService = () => {
+    setConflictAlert(null); // Clear previous conflict alerts
+
     if (!newServiceDate) {
         alert('Selecione uma data inicial.');
         return;
@@ -202,8 +250,6 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
         return;
     }
 
-    const datesToCreate: string[] = [];
-    
     if (isRecurring) {
         if (!recurringEndDate) {
             alert('Selecione a data final para a recorrência.');
@@ -217,18 +263,11 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
             alert('A data final excede o limite máximo permitido de 3 meses.');
             return;
         }
-
-        let currentDateObj = new Date(newServiceDate + 'T12:00:00'); 
-        const endDateObj = new Date(recurringEndDate + 'T12:00:00');
-        
-        while (currentDateObj <= endDateObj) {
-            datesToCreate.push(currentDateObj.toISOString().split('T')[0]);
-            currentDateObj.setDate(currentDateObj.getDate() + 7);
-        }
-    } else {
-        datesToCreate.push(newServiceDate);
     }
 
+    const datesToCreate = generateDatesToCreate(newServiceDate, isRecurring ? recurringEndDate : null, isRecurring);
+
+    // Conflict detection only for non-custom event types
     if (selectedEventTypeId && selectedEventTypeId !== 'custom') {
       const conflicts = datesToCreate.filter(dateStr => {
           return services.some(s => {
@@ -238,18 +277,15 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
       });
 
       if (conflicts.length > 0) {
-        const confirm = window.confirm(
-            `ATENÇÃO: Existem ${conflicts.length} conflito(s) de eventos deste tipo nas datas selecionadas (Ex: ${conflicts[0]}).\n\nDeseja continuar e criar apenas os eventos que NÃO possuem conflito?`
-        );
-        if (!confirm) return;
-        const nonConflictingDates = datesToCreate.filter(d => !conflicts.includes(d));
-        datesToCreate.length = 0; 
-        datesToCreate.push(...nonConflictingDates);
+        setConflictAlert({
+            message: `Já existem eventos do tipo "${eventTypes.find(t => t.id === selectedEventTypeId)?.name || 'Este Tipo de Evento'}" para as seguintes datas: ${conflicts.join(', ')}.`,
+            conflictingDates: conflicts
+        });
+        return; // Stop here, wait for user decision from the alert UI
       }
     }
 
-    if (datesToCreate.length === 0) return;
-
+    // If no conflicts or custom type, proceed to add all services
     datesToCreate.forEach((dateStr, index) => {
         const newService: ServiceEvent = {
           id: `manual-${Date.now()}-${index}`,
@@ -261,6 +297,7 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
         onAddService(newService);
     });
     
+    // Reset form
     setNewServiceDate('');
     setNewServiceTitle('');
     setSelectedEventTypeId('');
@@ -268,6 +305,46 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
     setRecurringEndDate('');
     setIsAddingService(false);
   };
+
+  const handleConfirmConflict = () => {
+    if (!conflictAlert) return;
+
+    let titleToSave = newServiceTitle;
+    if (selectedEventTypeId && selectedEventTypeId !== 'custom') {
+        const type = eventTypes.find(t => t.id === selectedEventTypeId);
+        if (type) titleToSave = type.name;
+    }
+
+    const allGeneratedDates = generateDatesToCreate(newServiceDate, isRecurring ? recurringEndDate : null, isRecurring);
+    const nonConflictingDates = allGeneratedDates.filter(d => !conflictAlert.conflictingDates.includes(d));
+
+    if (nonConflictingDates.length === 0) {
+        alert('Após remover os conflitos, não restaram eventos para salvar.');
+        setConflictAlert(null);
+        return;
+    }
+
+    nonConflictingDates.forEach((dateStr, index) => {
+        const newService: ServiceEvent = {
+            id: `manual-${Date.now()}-${index}`,
+            date: dateStr,
+            title: titleToSave,
+            eventTypeId: selectedEventTypeId || undefined,
+            assignments: []
+        };
+        onAddService(newService);
+    });
+
+    // Reset form and clear alert
+    setNewServiceDate('');
+    setNewServiceTitle('');
+    setSelectedEventTypeId('');
+    setIsRecurring(false);
+    setRecurringEndDate('');
+    setIsAddingService(false);
+    setConflictAlert(null);
+  };
+
 
   const handleAddAssignment = (serviceId: string) => {
     if (!selectedRole || !selectedEntityId) return;
@@ -403,6 +480,20 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
     window.open(`https://wa.me/?text=${encoded}`, '_blank');
   };
 
+  // Toggle ministry selection in filter
+  const toggleMinistryFilter = (ministryName: string) => {
+    setSelectedMinistriesFilter(prev =>
+      prev.includes(ministryName)
+        ? prev.filter(name => name !== ministryName)
+        : [...prev, ministryName]
+    );
+  };
+
+  const clearMinistryFilter = () => {
+    setSelectedMinistriesFilter([]);
+    setShowMinistryFilterDropdown(false);
+  };
+
   const availableEntities = assignmentType === 'volunteer' 
     ? (selectedRole ? volunteers.filter(v => v.roles.includes(selectedRole)) : volunteers)
     : teams; 
@@ -413,7 +504,8 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
         <div>
           <h2 className="text-2xl font-bold text-brand-secondary">Escalas e Eventos</h2>
           
-          <div className="flex mt-3 bg-brand-bg rounded-lg p-1 border border-brand-muted/10 w-fit">
+          <div className="flex flex-wrap gap-2 mt-3 bg-brand-bg rounded-lg p-1 border border-brand-muted/10 w-fit">
+            {/* View Filter (All/Mine) */}
             <button
               onClick={() => setViewFilter('all')}
               className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
@@ -436,6 +528,50 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
               <UserCheck size={16} />
               Minha Escala
             </button>
+
+            {/* Ministry Filter Dropdown */}
+            <div className="relative" ref={ministryFilterRef}>
+                <button
+                    onClick={() => setShowMinistryFilterDropdown(!showMinistryFilterDropdown)}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all bg-white border ${
+                        selectedMinistriesFilter.length > 0
+                            ? 'border-brand-primary text-brand-primary shadow-sm'
+                            : 'border-brand-muted/10 text-brand-muted hover:text-brand-secondary hover:bg-gray-50'
+                    }`}
+                >
+                    <Filter size={16} />
+                    <span>Ministérios {selectedMinistriesFilter.length > 0 ? `(${selectedMinistriesFilter.length})` : ''}</span>
+                    <ChevronDown size={16} className={`transition-transform ${showMinistryFilterDropdown ? 'rotate-180' : ''}`} />
+                </button>
+                {showMinistryFilterDropdown && (
+                    <div className="absolute left-0 mt-2 w-64 bg-white border border-brand-muted/20 rounded-lg shadow-lg z-40 max-h-60 overflow-y-auto">
+                        <div className="p-3 border-b border-brand-muted/10">
+                            <button
+                                onClick={clearMinistryFilter}
+                                className="w-full text-left text-xs text-brand-muted hover:text-brand-secondary hover:underline"
+                            >
+                                Limpar Filtro
+                            </button>
+                        </div>
+                        <div className="p-2 space-y-1">
+                            {ministries.map(ministry => (
+                                <label key={ministry.name} className="flex items-center gap-2 px-2 py-1 rounded cursor-pointer hover:bg-brand-bg">
+                                    <input
+                                        type="checkbox"
+                                        checked={selectedMinistriesFilter.includes(ministry.name)}
+                                        onChange={() => toggleMinistryFilter(ministry.name)}
+                                        className="rounded text-brand-primary focus:ring-brand-primary h-4 w-4"
+                                    />
+                                    <span className="text-sm">{ministry.name}</span>
+                                </label>
+                            ))}
+                            {ministries.length === 0 && (
+                              <p className="text-xs text-brand-muted px-2 py-1">Nenhum ministério cadastrado.</p>
+                            )}
+                        </div>
+                    </div>
+                )}
+            </div>
           </div>
         </div>
 
@@ -461,7 +597,7 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
 
             {!readOnly && (
             <button
-                onClick={() => setIsAddingService(!isAddingService)}
+                onClick={() => {setIsAddingService(!isAddingService); setConflictAlert(null);}} // Clear conflict alert when opening/closing
                 className="bg-brand-primary hover:bg-brand-primary-hover text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors shadow-sm"
             >
                 <Plus size={20} />
@@ -475,6 +611,32 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
       {isAddingService && !readOnly && (
         <div className="bg-white p-6 rounded-xl border border-brand-accent/50 shadow-md animate-fade-in-down no-print">
            <h3 className="text-lg font-semibold mb-4 text-brand-primary">Criar Novo Culto/Evento</h3>
+           
+           {/* CONFLICT ALERT UI */}
+           {conflictAlert && (
+                <div className="mb-4 p-4 bg-yellow-50 text-yellow-800 rounded-lg flex items-start gap-3 text-sm border border-yellow-200 animate-fade-in">
+                    <AlertTriangle size={20} className="mt-0.5 shrink-0" />
+                    <div>
+                        <p className="font-semibold mb-2">Conflito de Eventos Detectado!</p>
+                        <p>{conflictAlert.message}</p>
+                        <div className="flex flex-wrap gap-2 mt-3">
+                            <button 
+                                onClick={handleConfirmConflict}
+                                className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg text-xs font-medium transition-colors"
+                            >
+                                Continuar (criar não-conflitantes)
+                            </button>
+                            <button 
+                                onClick={() => setConflictAlert(null)}
+                                className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg text-xs font-medium transition-colors"
+                            >
+                                Cancelar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                <div>
                    <label className="block text-sm font-medium text-brand-secondary mb-1">Data Inicial</label>
@@ -485,7 +647,7 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
                          type="checkbox" 
                          id="recurringCheck" 
                          checked={isRecurring} 
-                         onChange={(e) => setIsRecurring(e.target.checked)}
+                         onChange={(e) => {setIsRecurring(e.target.checked); setConflictAlert(null);}} // Clear conflict on recurrence change
                          className="rounded text-brand-primary focus:ring-brand-primary h-4 w-4 cursor-pointer"
                        />
                        <label htmlFor="recurringCheck" className="text-sm text-brand-secondary flex items-center gap-1 cursor-pointer select-none">
@@ -501,6 +663,7 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
                        setSelectedEventTypeId(e.target.value);
                        const t = eventTypes.find(type => type.id === e.target.value);
                        if (t) setNewServiceTitle(t.name);
+                       setConflictAlert(null); // Clear conflict on event type change
                    }} className="w-full border border-brand-muted/30 rounded-lg px-4 py-2 bg-brand-bg/50">
                        <option value="">Selecione...</option>
                        {eventTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
@@ -518,7 +681,7 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
                          type="date" 
                          value={recurringEndDate} 
                          max={maxRecurDateStr}
-                         onChange={(e) => setRecurringEndDate(e.target.value)} 
+                         onChange={(e) => {setRecurringEndDate(e.target.value); setConflictAlert(null);}} // Clear conflict on end date change
                          className={`w-full border rounded-lg px-4 py-2 bg-white ${isDateRangeInvalid || isDateLimitExceeded ? 'border-red-300 text-red-900 focus:ring-red-500' : 'border-brand-muted/30'}`}
                        />
                        {isDateRangeInvalid && (
@@ -539,7 +702,7 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
                {(selectedEventTypeId === 'custom' || !selectedEventTypeId) && (
                    <div className={isRecurring ? "md:col-span-1" : "md:col-span-2"}>
                        <label className="block text-sm font-medium text-brand-secondary mb-1">Nome</label>
-                       <input type="text" value={newServiceTitle} onChange={(e) => setNewServiceTitle(e.target.value)} className="w-full border border-brand-muted/30 rounded-lg px-4 py-2 bg-brand-bg/50"/>
+                       <input type="text" value={newServiceTitle} onChange={(e) => {setNewServiceTitle(e.target.value); setConflictAlert(null);}} className="w-full border border-brand-muted/30 rounded-lg px-4 py-2 bg-brand-bg/50"/>
                    </div>
                )}
            </div>
@@ -548,11 +711,12 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
                    setIsAddingService(false);
                    setIsRecurring(false);
                    setRecurringEndDate('');
+                   setConflictAlert(null); // Clear conflict on cancel
                }} className="px-4 py-2 text-brand-muted hover:text-brand-secondary">Cancelar</button>
                <button 
                  type="button"
                  onClick={handleSaveService} 
-                 disabled={!isFormValid}
+                 disabled={!isFormValid} // Button is only disabled for basic form invalidity, not conflicts
                  className="bg-brand-primary hover:bg-brand-primary-hover disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-6 py-2 rounded-lg transition-colors shadow-sm flex items-center gap-2 cursor-pointer"
                >
                  <Save size={18} />
@@ -575,13 +739,23 @@ const ScheduleView: React.FC<ScheduleViewProps> = ({
               {viewFilter === 'mine' ? <UserCheck size={48} /> : <CalendarIcon size={48} />}
             </div>
             <p className="text-brand-secondary font-medium">
-              {viewFilter === 'mine' 
+              {viewFilter === 'mine' && selectedMinistriesFilter.length > 0
+                ? `Você não está escalado para nenhum evento futuro nos ministérios selecionados.`
+                : viewFilter === 'mine' 
                 ? 'Você não está escalado para nenhum evento futuro.' 
-                : 'Nenhum evento encontrado.'}
+                : selectedMinistriesFilter.length > 0
+                  ? `Nenhum evento encontrado para os ministérios selecionados.`
+                  : 'Nenhum evento encontrado.'
+              }
             </p>
             {viewFilter === 'mine' && (
               <button onClick={() => setViewFilter('all')} className="mt-2 text-brand-primary hover:underline text-sm">
                 Ver todos os eventos
+              </button>
+            )}
+            {selectedMinistriesFilter.length > 0 && (
+              <button onClick={clearMinistryFilter} className="mt-2 ml-4 text-brand-primary hover:underline text-sm">
+                Limpar filtro de ministérios
               </button>
             )}
           </div>

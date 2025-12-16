@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { Ministry } from '../types';
-import { Plus, Trash2, BookOpen, Loader2 } from 'lucide-react';
+import { Plus, Trash2, BookOpen, Loader2, AlertCircle } from 'lucide-react'; // Added AlertCircle
 import { AVAILABLE_ICONS } from '../constants';
 
 interface MinistryListProps {
@@ -14,29 +14,38 @@ const MinistryList: React.FC<MinistryListProps> = ({ ministries, onAddMinistry, 
   const [newName, setNewName] = useState('');
   const [selectedIcon, setSelectedIcon] = useState('book-open');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [alertMessage, setAlertMessage] = useState<string | null>(null); // New state for alert message
 
   const handleAdd = async () => {
     const trimmedName = newName.trim();
     if (trimmedName && !isSubmitting) {
-      // Validação Case-Insensitive no Frontend
-      const exists = ministries.some(m => m.name.toLowerCase() === trimmedName.toLowerCase());
-      
-      if (exists) {
-        alert(`O ministério "${trimmedName}" já existe nesta igreja.`);
-        return;
-      }
-
       setIsSubmitting(true);
+      setAlertMessage(null); // Clear any previous alerts
       try {
+        // Client-side check (optional but good for UX)
+        const exists = ministries.some(m => m.name.toLowerCase() === trimmedName.toLowerCase());
+        
+        if (exists) {
+          setAlertMessage(`O ministério "${trimmedName}" já existe nesta igreja (verifique a lista).`);
+          setIsSubmitting(false);
+          return;
+        }
+
         await onAddMinistry({
             name: trimmedName,
             icon: selectedIcon
         });
         setNewName('');
         setSelectedIcon('book-open'); // Reset to default
-      } catch (error) {
-        // Erro já tratado no App.tsx, mas garantimos que o loading pare
-        console.error(error);
+        setAlertMessage(null); // Clear alert on successful add
+      } catch (error: any) {
+        console.error("Erro ao adicionar ministério:", error);
+        // Catch server-side errors passed from App.tsx
+        if (error.message === 'MINISTRY_EXISTS') {
+          setAlertMessage(`Erro: O ministério "${trimmedName}" já existe na base de dados.`);
+        } else {
+          setAlertMessage('Erro ao adicionar ministério. Tente novamente ou verifique se o script SQL está atualizado.');
+        }
       } finally {
         setIsSubmitting(false);
       }
@@ -64,6 +73,13 @@ const MinistryList: React.FC<MinistryListProps> = ({ ministries, onAddMinistry, 
           Cadastrar Novo Ministério
         </h3>
         
+        {alertMessage && (
+            <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg flex items-start gap-2 text-sm border border-red-100 animate-fade-in">
+              <AlertCircle size={16} className="mt-0.5 shrink-0" />
+              <span>{alertMessage}</span>
+            </div>
+        )}
+
         <div className="space-y-4">
             <div>
                 <label className="block text-sm font-medium text-brand-secondary mb-2">1. Escolha um Ícone</label>

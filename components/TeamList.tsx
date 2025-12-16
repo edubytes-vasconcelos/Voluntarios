@@ -1,14 +1,15 @@
 
+
 import React, { useState, useMemo } from 'react';
 import { Team, Volunteer } from '../types';
-import { Users, Plus, Trash2, Check, X, Shield, Pencil } from 'lucide-react';
+import { Users, Plus, Trash2, Check, X, Shield, Pencil, AlertCircle, Loader2 } from 'lucide-react'; // Adicionado AlertCircle e Loader2
 
 interface TeamListProps {
   teams: Team[];
   volunteers: Volunteer[];
-  onAddTeam: (team: Team) => void;
+  onAddTeam: (team: Team) => Promise<void> | void; // Alterado para Promise<void>
   onRemoveTeam: (id: string) => void;
-  onUpdateTeam: (team: Team) => void;
+  onUpdateTeam: (team: Team) => Promise<void> | void; // Alterado para Promise<void>
   currentUser: Volunteer | null;
 }
 
@@ -19,6 +20,9 @@ const TeamList: React.FC<TeamListProps> = ({ teams, volunteers, onAddTeam, onRem
   
   // State for editing existing team
   const [editingTeamId, setEditingTeamId] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false); // Novo estado para loading
+  const [alertMessage, setAlertMessage] = useState<string | null>(null); // Novo estado para mensagens de alerta
+
 
   // Filter volunteers based on permissions
   const availableVolunteers = useMemo(() => {
@@ -34,29 +38,78 @@ const TeamList: React.FC<TeamListProps> = ({ teams, volunteers, onAddTeam, onRem
     });
   }, [volunteers, currentUser, selectedMemberIds]);
 
-  const handleCreate = () => {
-    if (!newTeamName.trim()) return;
-    const newTeam: Team = {
-      id: `team-${Date.now()}`,
-      name: newTeamName,
-      memberIds: selectedMemberIds
-    };
-    onAddTeam(newTeam);
-    resetForm();
+  const handleCreate = async () => {
+    const trimmedName = newTeamName.trim();
+    if (!trimmedName || selectedMemberIds.length === 0 || isSubmitting) return;
+
+    setIsSubmitting(true);
+    setAlertMessage(null);
+
+    try {
+      // Validação client-side para evitar requisição desnecessária
+      const exists = teams.some(t => t.name.toLowerCase() === trimmedName.toLowerCase());
+      if (exists) {
+        setAlertMessage(`A equipe "${trimmedName}" já existe nesta igreja.`);
+        setIsSubmitting(false);
+        return;
+      }
+
+      const newTeam: Team = {
+        id: `team-${Date.now()}`,
+        name: trimmedName,
+        memberIds: selectedMemberIds
+      };
+      await onAddTeam(newTeam);
+      resetForm();
+    } catch (error: any) {
+        console.error("Erro ao adicionar equipe:", error);
+        if (error.message === 'TEAM_EXISTS') {
+            setAlertMessage(`Erro: A equipe "${trimmedName}" já existe na base de dados.`);
+        } else {
+            setAlertMessage('Erro ao adicionar equipe. Tente novamente ou verifique se o script SQL está atualizado.');
+        }
+    } finally {
+        setIsSubmitting(false);
+    }
   };
 
-  const handleUpdate = () => {
-    if (!editingTeamId || !newTeamName.trim()) return;
-    const updatedTeam: Team = {
-      id: editingTeamId,
-      name: newTeamName,
-      memberIds: selectedMemberIds
-    };
-    onUpdateTeam(updatedTeam);
-    resetForm();
+  const handleUpdate = async () => {
+    const trimmedName = newTeamName.trim();
+    if (!editingTeamId || !trimmedName || selectedMemberIds.length === 0 || isSubmitting) return;
+
+    setIsSubmitting(true);
+    setAlertMessage(null);
+
+    try {
+      // Validação client-side: checa duplicidade com outras equipes (exceto a que está sendo editada)
+      const exists = teams.some(t => t.id !== editingTeamId && t.name.toLowerCase() === trimmedName.toLowerCase());
+      if (exists) {
+        setAlertMessage(`A equipe "${trimmedName}" já existe nesta igreja.`);
+        setIsSubmitting(false);
+        return;
+      }
+
+      const updatedTeam: Team = {
+        id: editingTeamId,
+        name: trimmedName,
+        memberIds: selectedMemberIds
+      };
+      await onUpdateTeam(updatedTeam);
+      resetForm();
+    } catch (error: any) {
+        console.error("Erro ao atualizar equipe:", error);
+        if (error.message === 'TEAM_EXISTS') {
+            setAlertMessage(`Erro: A equipe "${trimmedName}" já existe na base de dados.`);
+        } else {
+            setAlertMessage('Erro ao atualizar equipe. Tente novamente ou verifique se o script SQL está atualizado.');
+        }
+    } finally {
+        setIsSubmitting(false);
+    }
   };
 
   const startEdit = (team: Team) => {
+    setAlertMessage(null); // Limpa alerta ao iniciar edição
     setEditingTeamId(team.id);
     setNewTeamName(team.name);
     setSelectedMemberIds(team.memberIds);
@@ -68,6 +121,7 @@ const TeamList: React.FC<TeamListProps> = ({ teams, volunteers, onAddTeam, onRem
     setNewTeamName('');
     setSelectedMemberIds([]);
     setEditingTeamId(null);
+    setAlertMessage(null); // Limpa alerta ao resetar formulário
   };
 
   const toggleMember = (volunteerId: string) => {
@@ -102,6 +156,13 @@ const TeamList: React.FC<TeamListProps> = ({ teams, volunteers, onAddTeam, onRem
             {editingTeamId ? 'Editar Equipe' : 'Criar Nova Equipe'}
           </h3>
           
+          {alertMessage && (
+            <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg flex items-start gap-2 text-sm border border-red-100 animate-fade-in">
+              <AlertCircle size={16} className="mt-0.5 shrink-0" />
+              <span>{alertMessage}</span>
+            </div>
+          )}
+
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-brand-secondary mb-1">Nome da Equipe</label>
@@ -110,7 +171,8 @@ const TeamList: React.FC<TeamListProps> = ({ teams, volunteers, onAddTeam, onRem
                 value={newTeamName}
                 onChange={(e) => setNewTeamName(e.target.value)}
                 placeholder="Ex: Louvor Banda A, Recepção Manhã..."
-                className="w-full border border-brand-muted/30 rounded-lg px-4 py-2 bg-brand-bg/50 focus:ring-2 focus:ring-brand-primary outline-none"
+                disabled={isSubmitting}
+                className="w-full border border-brand-muted/30 rounded-lg px-4 py-2 bg-brand-bg/50 focus:ring-2 focus:ring-brand-primary outline-none disabled:opacity-70"
               />
             </div>
 
@@ -148,13 +210,13 @@ const TeamList: React.FC<TeamListProps> = ({ teams, volunteers, onAddTeam, onRem
             </div>
 
             <div className="flex justify-end gap-3 pt-2">
-              <button onClick={resetForm} className="px-4 py-2 text-brand-muted hover:text-brand-secondary">Cancelar</button>
+              <button onClick={resetForm} disabled={isSubmitting} className="px-4 py-2 text-brand-muted hover:text-brand-secondary disabled:opacity-50">Cancelar</button>
               <button 
                 onClick={editingTeamId ? handleUpdate : handleCreate}
-                disabled={!newTeamName.trim() || selectedMemberIds.length === 0}
-                className="bg-brand-primary hover:bg-brand-primary-hover disabled:opacity-50 text-white px-6 py-2 rounded-lg"
+                disabled={!newTeamName.trim() || selectedMemberIds.length === 0 || isSubmitting}
+                className="bg-brand-primary hover:bg-brand-primary-hover disabled:opacity-50 text-white px-6 py-2 rounded-lg flex items-center gap-2"
               >
-                Salvar Equipe
+                {isSubmitting ? <Loader2 size={18} className="animate-spin"/> : 'Salvar Equipe'}
               </button>
             </div>
           </div>
