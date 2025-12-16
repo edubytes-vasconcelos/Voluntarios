@@ -52,6 +52,9 @@ const App: React.FC = () => {
   // Ref para evitar race conditions no loadData
   const isLoadingRef = useRef(false);
 
+  // New state for mobile config menu
+  const [showConfigMenu, setShowConfigMenu] = useState(false);
+
   // Check Auth on Mount
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -859,7 +862,7 @@ GRANT ALL ON TABLE push_subscriptions TO authenticated;`;
 
               {canManageSettings && currentOrg && (
                  <button
-                    onClick={() => handleNavClick('ministries')}
+                    onClick={() => setShowConfigMenu(true)} // Open config menu overlay
                     className={`flex flex-col items-center justify-center w-full py-1 transition-colors ${
                         activeTab === 'ministries' || activeTab === 'eventTypes' ? 'text-brand-primary' : 'text-brand-muted hover:text-brand-secondary'
                     }`}
@@ -871,6 +874,41 @@ GRANT ALL ON TABLE push_subscriptions TO authenticated;`;
                 </button>
               )}
           </nav>
+
+          {/* --- MOBILE CONFIG MENU OVERLAY --- */}
+          {showConfigMenu && (
+            <div 
+                className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center animate-fade-in print:hidden"
+                onClick={() => setShowConfigMenu(false)} // Close on background click
+            >
+                <div 
+                    className="bg-white p-6 rounded-t-2xl shadow-lg w-full max-w-sm"
+                    onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside
+                >
+                    <h3 className="text-xl font-bold text-brand-secondary mb-4">Configurações</h3>
+                    <div className="flex flex-col gap-3">
+                        <button
+                            onClick={() => { handleNavClick('ministries'); setShowConfigMenu(false); }}
+                            className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors bg-brand-bg hover:bg-brand-accent/20 text-brand-secondary"
+                        >
+                            <BookOpen size={20} /> Ministérios
+                        </button>
+                        <button
+                            onClick={() => { handleNavClick('eventTypes'); setShowConfigMenu(false); }}
+                            className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors bg-brand-bg hover:bg-brand-accent/20 text-brand-secondary"
+                        >
+                            <ListFilter size={20} /> Tipos de Evento
+                        </button>
+                        <button 
+                            onClick={() => setShowConfigMenu(false)}
+                            className="mt-4 px-4 py-2.5 rounded-lg text-sm font-medium border border-brand-muted/20 text-brand-muted hover:bg-brand-bg"
+                        >
+                            Cancelar
+                        </button>
+                    </div>
+                </div>
+            </div>
+          )}
       </div>
     </div>
   );
