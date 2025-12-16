@@ -1,26 +1,45 @@
+
 import React, { useState } from 'react';
 import { Ministry } from '../types';
-import { Plus, Trash2, BookOpen } from 'lucide-react';
+import { Plus, Trash2, BookOpen, Loader2 } from 'lucide-react';
 import { AVAILABLE_ICONS } from '../constants';
 
 interface MinistryListProps {
   ministries: Ministry[];
-  onAddMinistry: (ministry: Ministry) => void;
+  onAddMinistry: (ministry: Ministry) => Promise<void> | void; // Allow async
   onRemoveMinistry: (name: string) => void;
 }
 
 const MinistryList: React.FC<MinistryListProps> = ({ ministries, onAddMinistry, onRemoveMinistry }) => {
   const [newName, setNewName] = useState('');
   const [selectedIcon, setSelectedIcon] = useState('book-open');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleAdd = () => {
-    if (newName.trim()) {
-      onAddMinistry({
-        name: newName.trim(),
-        icon: selectedIcon
-      });
-      setNewName('');
-      setSelectedIcon('book-open'); // Reset to default
+  const handleAdd = async () => {
+    const trimmedName = newName.trim();
+    if (trimmedName && !isSubmitting) {
+      // Validação Case-Insensitive no Frontend
+      const exists = ministries.some(m => m.name.toLowerCase() === trimmedName.toLowerCase());
+      
+      if (exists) {
+        alert(`O ministério "${trimmedName}" já existe nesta igreja.`);
+        return;
+      }
+
+      setIsSubmitting(true);
+      try {
+        await onAddMinistry({
+            name: trimmedName,
+            icon: selectedIcon
+        });
+        setNewName('');
+        setSelectedIcon('book-open'); // Reset to default
+      } catch (error) {
+        // Erro já tratado no App.tsx, mas garantimos que o loading pare
+        console.error(error);
+      } finally {
+        setIsSubmitting(false);
+      }
     }
   };
 
@@ -78,16 +97,17 @@ const MinistryList: React.FC<MinistryListProps> = ({ ministries, onAddMinistry, 
                             value={newName}
                             onChange={(e) => setNewName(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-                            className="w-full border border-brand-muted/30 rounded-lg pl-10 pr-4 py-2.5 focus:ring-2 focus:ring-brand-primary focus:outline-none bg-brand-bg/50"
+                            disabled={isSubmitting}
+                            className="w-full border border-brand-muted/30 rounded-lg pl-10 pr-4 py-2.5 focus:ring-2 focus:ring-brand-primary focus:outline-none bg-brand-bg/50 disabled:opacity-70"
                             placeholder="Ex: Cozinha, Intercessão, Som..."
                         />
                     </div>
                     <button 
                         onClick={handleAdd}
-                        disabled={!newName.trim()}
-                        className="bg-brand-primary hover:bg-brand-primary-hover disabled:bg-brand-muted/50 disabled:cursor-not-allowed text-white px-6 py-2.5 rounded-lg font-medium transition-colors"
+                        disabled={!newName.trim() || isSubmitting}
+                        className="bg-brand-primary hover:bg-brand-primary-hover disabled:bg-brand-muted/50 disabled:cursor-not-allowed text-white px-6 py-2.5 rounded-lg font-medium transition-colors flex items-center gap-2"
                     >
-                        Adicionar
+                        {isSubmitting ? <Loader2 size={18} className="animate-spin"/> : 'Adicionar'}
                     </button>
                 </div>
             </div>

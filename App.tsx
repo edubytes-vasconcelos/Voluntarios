@@ -42,7 +42,7 @@ const App: React.FC = () => {
   const [teams, setTeams] = useState<Team[]>([]); 
   const [services, setServices] = useState<ServiceEvent[]>([]);
   const [ministries, setMinistries] = useState<Ministry[]>([]);
-  const [eventTypes, setEventTypes] = useState<EventType[]>([]);
+  const [eventTypes, setEventTypes] = useState<EventType[]>(([]);
   
   // CORREÇÃO: Inicia loading como true para evitar flash da tela de cadastro
   const [loading, setLoading] = useState(true); 
@@ -350,7 +350,18 @@ const App: React.FC = () => {
       await db.addMinistry(newMinistry);
       const m = await db.getMinistries();
       setMinistries(m);
-    } catch (e) { alert('Erro ao adicionar ministério'); }
+    } catch (e: any) { 
+        // Tratamento de erro específico para duplicidade
+        if (e.message?.includes('duplicate key') || e.code === '23505') {
+            alert(`O ministério "${newMinistry.name}" já existe na base de dados (sincronizando...).`);
+            // CRITICAL FIX: Se o banco diz que existe, forçamos o reload da lista para mostrar o item "invisível"
+            const refreshed = await db.getMinistries();
+            setMinistries(refreshed);
+        } else {
+            console.error(e);
+            alert('Erro ao adicionar ministério. Se o erro persistir, clique em "Sair" e depois em "Reparar Banco".'); 
+        }
+    }
   };
 
   const handleRemoveMinistry = async (name: string) => {
@@ -403,8 +414,8 @@ const App: React.FC = () => {
   // --- RECOVERY / REPAIR SCREEN (Exclusively for DB Repair now) ---
   if (needsDbRepair) {
       
-      // SCRIPT SQL 'COMPLETE RESET' (V10) - Case Insensitive Email
-      const SQL_SCRIPT = `-- SOLUÇÃO V10: CORREÇÃO DE EMAIL (MINÚSCULAS) E VINCULAÇÃO
+      // SCRIPT SQL 'COMPLETE RESET' (V18) - Correção de Constraints Globais e Duplicidade
+      const SQL_SCRIPT = `-- SOLUÇÃO V18: CORREÇÃO DO ERRO "record 'r' is not assigned yet" E ROBUSTEZ NA REMOÇÃO DE CONSTRAINTS
 
 -- 1. Limpeza de Funções Antigas
 DROP FUNCTION IF EXISTS get_my_org_id() CASCADE;
@@ -430,8 +441,7 @@ ALTER TABLE event_types ENABLE ROW LEVEL SECURITY;
 ALTER TABLE organizations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
 
--- 4. Função de Auto-Claim (VINCULAR CONTA NOVA AO PERFIL EXISTENTE)
--- CORREÇÃO V10: Usa LOWER() para comparar emails, evitando erro de maiúsculas/minúsculas
+-- 4. Função de Auto-Claim
 CREATE OR REPLACE FUNCTION claim_profile_by_email(user_email text, new_user_id text)
 RETURNS boolean
 LANGUAGE plpgsql
@@ -440,20 +450,18 @@ AS $$
 DECLARE
   old_user_id text;
 BEGIN
-  -- Acha o perfil antigo pelo email (case insensitive), que tenha um ID diferente do novo
+  -- Acha o perfil antigo pelo email (case insensitive)
   SELECT id INTO old_user_id 
   FROM volunteers 
   WHERE LOWER(email) = LOWER(user_email) AND id != new_user_id 
   LIMIT 1;
   
   IF old_user_id IS NULL THEN
-    RETURN FALSE; -- Nada para reivindicar
+    RETURN FALSE;
   END IF;
 
-  -- 1. Atualiza ID do Voluntário
   UPDATE volunteers SET id = new_user_id WHERE id = old_user_id;
   
-  -- 2. Atualiza Equipes (Substitui ID antigo pelo novo na lista de membros)
   UPDATE teams 
   SET member_ids = (
     SELECT array_agg(CASE WHEN elem = old_user_id THEN new_user_id ELSE elem END)
@@ -461,7 +469,6 @@ BEGIN
   )
   WHERE member_ids @> ARRAY[old_user_id];
 
-  -- 3. Atualiza Serviços (Substitui ID antigo no JSON das designações)
   UPDATE services 
   SET assignments = REPLACE(assignments::text, '"' || old_user_id || '"', '"' || new_user_id || '"')::jsonb
   WHERE assignments::text LIKE '%"' || old_user_id || '"%';
@@ -470,7 +477,7 @@ BEGIN
 END;
 $$;
 
--- 5. Função RPC de Cadastro Inicial (Admin)
+-- 5. Função RPC de Cadastro de Igreja
 CREATE OR REPLACE FUNCTION create_church_and_admin(
   church_name text,
   admin_name text,
@@ -497,7 +504,7 @@ BEGIN
 END;
 $$;
 
--- 6. Tabela Push (Caso não exista)
+-- 6. Tabela Push Notifications
 CREATE TABLE IF NOT EXISTS push_subscriptions (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id text NOT NULL,
@@ -507,7 +514,7 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 );
 ALTER TABLE push_subscriptions ENABLE ROW LEVEL SECURITY;
 
--- 7. Políticas de Acesso (Recria para garantir)
+-- 7. Políticas de Acesso (RLS)
 DROP POLICY IF EXISTS "vol_select" ON volunteers;
 CREATE POLICY "vol_select" ON volunteers FOR SELECT USING (auth.uid()::text = id OR organization_id = get_my_org_id());
 CREATE POLICY "vol_insert" ON volunteers FOR INSERT WITH CHECK (auth.uid()::text = id OR organization_id = get_my_org_id());
@@ -536,7 +543,7 @@ CREATE POLICY "log_view" ON audit_logs FOR SELECT USING (organization_id = get_m
 DROP POLICY IF EXISTS "push_own" ON push_subscriptions;
 CREATE POLICY "push_own" ON push_subscriptions FOR ALL USING (auth.uid()::text = user_id);
 
--- 8. Grants
+-- 8. Permissões (Grants)
 GRANT EXECUTE ON FUNCTION get_my_org_id TO authenticated;
 GRANT EXECUTE ON FUNCTION create_church_and_admin TO authenticated;
 GRANT EXECUTE ON FUNCTION claim_profile_by_email TO authenticated;
@@ -547,7 +554,54 @@ GRANT ALL ON TABLE teams TO authenticated;
 GRANT ALL ON TABLE ministries TO authenticated;
 GRANT ALL ON TABLE event_types TO authenticated;
 GRANT ALL ON TABLE audit_logs TO authenticated;
-GRANT ALL ON TABLE push_subscriptions TO authenticated;`;
+GRANT ALL ON TABLE push_subscriptions TO authenticated;
+
+-- 9. CORREÇÃO CRÍTICA DE CONSTRAINTS E ÍNDICES (V18)
+-- Este bloco visa ser EXAUSTIVO na remoção de qualquer constraint ou índice de unicidade conflitante
+-- e, em seguida, recria a correta.
+
+-- PASSO 1: Remover todos os índices de unicidade antigos na tabela ministries
+-- Isso inclui 'ministries_name_key', 'ministries_org_name_key' e 'ministries_org_name_idx'
+DROP INDEX IF EXISTS public.ministries_name_key;
+DROP INDEX IF EXISTS public.ministries_org_name_key;
+DROP INDEX IF EXISTS public.ministries_org_name_idx;
+
+-- PASSO 2: Remover quaisquer CONSTRAINTS de unicidade (UNIQUE ou PRIMARY KEY)
+-- que possam estar causando conflitos na coluna 'name' ou na combinação 'organization_id, name'.
+-- Isso é feito dinamicamente para pegar nomes de constraints autogeradas.
+DO $$ 
+DECLARE r RECORD;
+BEGIN
+    FOR r IN (
+        SELECT DISTINCT tc.constraint_name
+        FROM information_schema.table_constraints AS tc
+        JOIN information_schema.constraint_column_usage AS ccu 
+            ON tc.constraint_name = ccu.constraint_name 
+            AND tc.table_schema = ccu.table_schema
+            AND tc.table_name = ccu.table_name
+        WHERE 
+            tc.table_schema = 'public' AND 
+            tc.table_name = 'ministries' AND 
+            (tc.constraint_type = 'UNIQUE' OR tc.constraint_type = 'PRIMARY KEY') AND
+            (ccu.column_name = 'name' OR ccu.column_name = 'organization_id')
+    ) LOOP
+        RAISE NOTICE 'Dropping constraint: %', r.constraint_name;
+        EXECUTE 'ALTER TABLE public.ministries DROP CONSTRAINT IF EXISTS "' || r.constraint_name || '" CASCADE';
+    END LOOP;
+END $$;
+
+-- PASSO 3: Limpeza de Duplicados (Mantém o mais antigo usando CTID - funciona sem coluna ID)
+-- É CRÍTICO fazer isso DEPOIS de remover as constraints de unicidade, para que a exclusão funcione.
+DELETE FROM public.ministries
+WHERE ctid NOT IN (
+    SELECT min(ctid)
+    FROM public.ministries
+    GROUP BY organization_id, LOWER(name)
+);
+
+-- PASSO 4: Criar o ÍNDICE ÚNICO CORRETO e caso-insensitivo
+-- Garante que o nome do ministério seja único APENAS dentro da mesma organização (case-insensitive)
+CREATE UNIQUE INDEX IF NOT EXISTS ministries_org_name_idx ON public.ministries (organization_id, LOWER(name));`;
 
       return (
           <div className="min-h-screen bg-brand-bg flex items-center justify-center p-4">
@@ -558,10 +612,10 @@ GRANT ALL ON TABLE push_subscriptions TO authenticated;`;
                         <div className="bg-red-50 p-4 rounded-full w-20 h-20 flex items-center justify-center mx-auto mb-4 text-red-600">
                             <Database size={32} />
                         </div>
-                        <h2 className="text-xl font-bold text-red-700 mb-2">Atualização de Banco Necessária</h2>
+                        <h2 className="text-xl font-bold text-red-700 mb-2">Configuração de Banco Necessária</h2>
                         <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-left text-sm text-red-800 mb-4">
                             <p className="font-bold flex items-center gap-2 mb-2"><AlertCircle size={16}/> {repairErrorMsg || 'Correção de Vínculo de Contas'}</p>
-                            <p>O script V10 abaixo corrige problemas onde o email cadastrado tem letras maiúsculas/minúsculas diferentes do login.</p>
+                            <p>O script V18 abaixo corrige um problema persistente onde o banco de dados impedia que igrejas diferentes usassem o mesmo nome de ministério (ex: "Louvor").</p>
                         </div>
                   </div>
 
@@ -569,7 +623,7 @@ GRANT ALL ON TABLE push_subscriptions TO authenticated;`;
                   <div className="text-left mb-6 bg-slate-50 border border-slate-200 rounded-lg p-4">
                       <h3 className="font-bold text-slate-800 flex items-center gap-2 mb-2">
                           <Database size={18} />
-                          Script de Atualização (V10)
+                          Script de Atualização (V18)
                       </h3>
                       <ol className="list-decimal list-inside text-xs text-slate-500 mb-3 space-y-1">
                           <li>Copie o código SQL abaixo.</li>
