@@ -1,8 +1,7 @@
-
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { db } from '../services/db';
-import { Loader2, LogIn, Mail, Lock, UserPlus, CheckCircle, Building2, User, AlertCircle, Database, RefreshCw, Copy } from 'lucide-react';
+import { Loader2, LogIn, Mail, Lock, UserPlus, CheckCircle, Building2, User, AlertCircle, Database, RefreshCw, Copy, Sparkles } from 'lucide-react';
 
 interface LoginProps {
   onLoginSuccess: () => void;
@@ -182,7 +181,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onRegisterStart, onRegist
   );
 
     // SQL Script (Duplicated from App.tsx for critical initial setup failures)
-  const SQL_SCRIPT = `-- SOLUÇÃO V18: CORREÇÃO DO ERRO "record 'r' is not assigned yet" E ROBUSTEZ NA REMOÇÃO DE CONSTRAINTS
+  const SQL_SCRIPT = `-- SOLUÇÃO V19: CORREÇÃO DO ERRO "record 'r' is not assigned yet" E ROBUSTEZ NA REMOÇÃO DE CONSTRAINTS, AGORA INCLUINDO EVENT_TYPES E TEAMS
 
 -- 1. Limpeza de Funções Antigas
 DROP FUNCTION IF EXISTS get_my_org_id() CASCADE;
@@ -323,24 +322,30 @@ GRANT ALL ON TABLE event_types TO authenticated;
 GRANT ALL ON TABLE audit_logs TO authenticated;
 GRANT ALL ON TABLE push_subscriptions TO authenticated;
 
--- 9. CORREÇÃO CRÍTICA DE CONSTRAINTS E ÍNDICES (V18)
+-- 9. CORREÇÃO CRÍTICA DE CONSTRAINTS E ÍNDICES (V19 - Adiciona para event_types e teams)
 -- Este bloco visa ser EXAUSTIVO na remoção de qualquer constraint ou índice de unicidade conflitante
 -- e, em seguida, recria a correta.
 
--- PASSO 1: Remover todos os índices de unicidade antigos na tabela ministries
--- Isso inclui 'ministries_name_key', 'ministries_org_name_key' e 'ministries_org_name_idx'
+-- PASSO 1: Remover todos os índices de unicidade antigos nas tabelas 'ministries', 'event_types', 'teams'
 DROP INDEX IF EXISTS public.ministries_name_key;
 DROP INDEX IF EXISTS public.ministries_org_name_key;
 DROP INDEX IF EXISTS public.ministries_org_name_idx;
+DROP INDEX IF EXISTS public.event_types_name_key; -- Pode existir
+DROP INDEX IF EXISTS public.event_types_org_name_key; -- Pode existir
+DROP INDEX IF EXISTS public.event_types_org_name_idx; -- Pode existir
+DROP INDEX IF EXISTS public.teams_name_key; -- Pode existir
+DROP INDEX IF EXISTS public.teams_org_name_key; -- Pode existir
+DROP INDEX IF EXISTS public.teams_org_name_idx; -- Pode existir
+
 
 -- PASSO 2: Remover quaisquer CONSTRAINTS de unicidade (UNIQUE ou PRIMARY KEY)
--- que possam estar causando conflitos na coluna 'name' ou na combinação 'organization_id, name'.
+-- que possam estar causando conflitos nas colunas 'name' ou na combinação 'organization_id, name'.
 -- Isso é feito dinamicamente para pegar nomes de constraints autogeradas.
 DO $$ 
 DECLARE r RECORD;
 BEGIN
     FOR r IN (
-        SELECT DISTINCT tc.constraint_name
+        SELECT DISTINCT tc.constraint_name, tc.table_name
         FROM information_schema.table_constraints AS tc
         JOIN information_schema.constraint_column_usage AS ccu 
             ON tc.constraint_name = ccu.constraint_name 
@@ -348,12 +353,12 @@ BEGIN
             AND tc.table_name = ccu.table_name
         WHERE 
             tc.table_schema = 'public' AND 
-            tc.table_name = 'ministries' AND 
+            tc.table_name IN ('ministries', 'event_types', 'teams') AND 
             (tc.constraint_type = 'UNIQUE' OR tc.constraint_type = 'PRIMARY KEY') AND
             (ccu.column_name = 'name' OR ccu.column_name = 'organization_id')
     ) LOOP
-        RAISE NOTICE 'Dropping constraint: %', r.constraint_name;
-        EXECUTE 'ALTER TABLE public.ministries DROP CONSTRAINT IF EXISTS "' || r.constraint_name || '" CASCADE';
+        RAISE NOTICE 'Dropping constraint: % from table %', r.constraint_name, r.table_name;
+        EXECUTE 'ALTER TABLE public.' || r.table_name || ' DROP CONSTRAINT IF EXISTS "' || r.constraint_name || '" CASCADE';
     END LOOP;
 END $$;
 
@@ -366,10 +371,37 @@ WHERE ctid NOT IN (
     GROUP BY organization_id, LOWER(name)
 );
 
--- PASSO 4: Criar o ÍNDICE ÚNICO CORRETO e caso-insensitivo
--- Garante que o nome do ministério seja único APENAS dentro da mesma organização (case-insensitive)
-CREATE UNIQUE INDEX IF NOT EXISTS ministries_org_name_idx ON public.ministries (organization_id, LOWER(name));`;
+DELETE FROM public.event_types
+WHERE ctid NOT IN (
+    SELECT min(ctid)
+    FROM public.event_types
+    GROUP BY organization_id, LOWER(name)
+);
 
+DELETE FROM public.teams
+WHERE ctid NOT IN (
+    SELECT min(ctid)
+    FROM public.teams
+    GROUP BY organization_id, LOWER(name)
+);
+
+-- PASSO 4: Criar os ÍNDICES ÚNICOS CORRETOS e caso-insensitivos
+-- Garante que o nome seja único APENAS dentro da mesma organização (case-insensitive)
+CREATE UNIQUE INDEX IF NOT EXISTS ministries_org_name_idx ON public.ministries (organization_id, LOWER(name));
+CREATE UNIQUE INDEX IF NOT EXISTS event_types_org_name_idx ON public.event_types (organization_id, LOWER(name));
+CREATE UNIQUE INDEX IF NOT EXISTS teams_org_name_idx ON public.teams (organization_id, LOWER(name));`;
+
+  // Local handler for logout within the repair screen
+  const handleLocalLogout = async () => {
+    setLoading(true);
+    try {
+        await supabase.auth.signOut();
+        window.location.reload(); // Force a full reload to reset all app state
+    } catch (error) {
+        console.error("Logout error during repair:", error);
+        setLoading(false);
+    }
+  };
 
   if (needsSetupRepair) {
       return (
@@ -383,8 +415,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS ministries_org_name_idx ON public.ministries (
                         </div>
                         <h2 className="text-xl font-bold text-red-700 mb-2">Configuração de Banco Necessária</h2>
                         <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-left text-sm text-red-800 mb-4">
+                            {/* Corrected to use local state variable setupRepairMsg */}
                             <p className="font-bold flex items-center gap-2 mb-2"><AlertCircle size={16}/> {setupRepairMsg || 'Correção de Vínculo de Contas'}</p>
-                            <p>O script V18 abaixo corrige um problema persistente onde o banco de dados impedia que igrejas diferentes usassem o mesmo nome de ministério (ex: "Louvor").</p>
+                            <p>O script <strong className="text-red-900">V19</strong> abaixo corrige um problema persistente onde o banco de dados impedia que igrejas diferentes usassem o mesmo nome de ministério (ex: "Louvor"), e agora também para <strong className="text-red-900">Tipos de Evento e Equipes</strong>.</p>
                         </div>
                   </div>
 
@@ -392,7 +425,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS ministries_org_name_idx ON public.ministries (
                   <div className="text-left mb-6 bg-slate-50 border border-slate-200 rounded-lg p-4">
                       <h3 className="font-bold text-slate-800 flex items-center gap-2 mb-2">
                           <Database size={18} />
-                          Script de Atualização (V18)
+                          Script de Atualização (V19)
                       </h3>
                       <ol className="list-decimal list-inside text-xs text-slate-500 mb-3 space-y-1">
                           <li>Copie o código SQL abaixo.</li>
@@ -425,14 +458,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS ministries_org_name_idx ON public.ministries (
                      </button>
                      
                      <div className="border-t border-gray-100 pt-3 mt-1">
-                        <button onClick={resetForm} className="text-brand-secondary hover:underline font-medium text-sm">Voltar para Login</button>
+                        {/* Corrected to use local handler */}
+                        <button onClick={handleLocalLogout} className="text-brand-secondary hover:underline font-medium text-sm">Sair e tentar outra conta</button>
                      </div>
                   </div>
               </div>
           </div>
       )
   }
-
 
   return (
     <div className="min-h-screen bg-brand-bg flex items-center justify-center p-4">
@@ -441,13 +474,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS ministries_org_name_idx ON public.ministries (
           <div className="text-brand-primary p-3 bg-brand-bg rounded-2xl mb-4">
             <IASDLogoLarge className="w-16 h-16" />
           </div>
-          <h1 className="text-2xl font-bold text-brand-secondary">
-            {viewState === 'register_church' ? 'Nova Igreja' : viewState === 'register_user' ? 'Criar Conta' : 'Bem-vindo'}
+          <h1 className="text-2xl font-bold text-brand-secondary flex items-center gap-2">
+            {viewState === 'register_church' ? 'Nova Igreja' : viewState === 'register_user' ? 'Criar Conta' : (
+              <>
+                <Sparkles size={24} className="text-brand-accent animate-pulse" />
+                Seja Bem-vindo(a)!
+              </>
+            )}
           </h1>
           <p className="text-brand-muted text-sm text-center">
             {viewState === 'register_church' ? 'Cadastre sua congregação e comece a gerenciar escalas.' : 
              viewState === 'register_user' ? 'Crie seu perfil de voluntário.' : 
-             'Faça login para acessar o sistema.'}
+             'Por favor, faça login para acessar o sistema.'}
           </p>
         </div>
 
