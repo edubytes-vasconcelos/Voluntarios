@@ -188,21 +188,29 @@ const App: React.FC = () => {
   };
 
   const handleLogout = async () => {
-    localStorage.removeItem('church_registration_name'); // Clear temp data
+    setLoading(true); // Evita flash da tela de 'Sem Organização' ao limpar estados antes do logout terminar
     
-    // EXPLICIT STATE CLEARING: Prevents data leakage between sessions
-    setVolunteers([]);
-    setTeams([]);
-    setServices([]);
-    setMinistries([]);
-    setEventTypes([]);
-    setUserProfile(null);
-    setCurrentOrg(null);
-    setNeedsDbRepair(false);
-    clearDbOrganizationId(); // Clear DB service static state
+    try {
+        localStorage.removeItem('church_registration_name'); // Clear temp data
+        
+        // EXPLICIT STATE CLEARING: Prevents data leakage between sessions
+        setVolunteers([]);
+        setTeams([]);
+        setServices([]);
+        setMinistries([]);
+        setEventTypes([]);
+        setUserProfile(null);
+        setCurrentOrg(null);
+        setNeedsDbRepair(false);
+        clearDbOrganizationId(); // Clear DB service static state
 
-    await supabase.auth.signOut();
-    setSession(null);
+        await supabase.auth.signOut();
+        setSession(null);
+    } catch (error) {
+        console.error("Logout error:", error);
+    } finally {
+        setLoading(false);
+    }
   };
 
   const handleNavClick = (tab: typeof activeTab) => {
@@ -354,7 +362,7 @@ const App: React.FC = () => {
     return (
       <div className="min-h-screen bg-brand-bg flex items-center justify-center flex-col gap-4 text-brand-primary">
         <Loader2 size={48} className="animate-spin" />
-        <p className="font-medium animate-pulse">Carregando seus dados...</p>
+        <p className="font-medium animate-pulse">Carregando...</p>
       </div>
     );
   }
