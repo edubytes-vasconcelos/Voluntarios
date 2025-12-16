@@ -1,7 +1,8 @@
 
+
 import React, { useState } from 'react';
-import { Volunteer, ServiceEvent } from '../types';
-import { generateScheduleWithAI } from '../services/geminiService';
+import { Volunteer, ServiceEvent } from '@/types';
+import { generateScheduleWithAI } from '@/services/geminiService';
 import { Sparkles, Calendar, Loader2, AlertCircle } from 'lucide-react';
 
 interface AISchedulerProps {

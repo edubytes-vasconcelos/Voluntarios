@@ -16,15 +16,15 @@
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
+    "baseUrl": "./src",
     "paths": {
-      // Se você usasse aliases de caminho, eles seriam configurados aqui.
-      // Ex: "@components/*": ["./components/*"]
+      "@/*": ["./*"]
     }
   },
   "include": [
-    "**/*.ts",
-    "**/*.d.ts",
-    "**/*.tsx"
+    "src/**/*.ts",
+    "src/**/*.d.ts",
+    "src/**/*.tsx"
   ],
-  "exclude": ["node_modules"]
+  "exclude": ["node_modules", "supabase", "dist"]
 }

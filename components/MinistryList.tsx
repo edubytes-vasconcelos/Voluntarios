@@ -1,8 +1,9 @@
 
+
 import React, { useState } from 'react';
-import { Ministry } from '../types';
+import { Ministry } from '@/types';
 import { Plus, Trash2, BookOpen, Loader2, AlertCircle } from 'lucide-react'; // Added AlertCircle
-import { AVAILABLE_ICONS } from '../constants';
+import { AVAILABLE_ICONS } from '@/constants';
 
 interface MinistryListProps {
   ministries: Ministry[];

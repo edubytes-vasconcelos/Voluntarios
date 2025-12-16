@@ -1,8 +1,9 @@
 
+
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { ServiceEvent, Volunteer, Assignment, Ministry, EventType, Team, AssignmentStatus } from '../types';
+import { ServiceEvent, Volunteer, Assignment, Ministry, EventType, Team, AssignmentStatus } from '@/types';
 import { Calendar as CalendarIcon, Users, Trash2, Plus, X, Save, BookOpen, AlertCircle, Filter, UserCheck, Shield, Repeat, Share2, Printer, MessageCircle, CheckCircle2, XCircle, Clock, AlertTriangle, Loader2, Send, ChevronDown } from 'lucide-react';
-import { AVAILABLE_ICONS } from '../constants';
+import { AVAILABLE_ICONS } from '@/constants';
 
 interface ScheduleViewProps {
   services: ServiceEvent[];

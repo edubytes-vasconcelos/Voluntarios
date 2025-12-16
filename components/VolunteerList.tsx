@@ -1,6 +1,7 @@
 
+
 import React, { useState, useRef, useEffect } from 'react';
-import { Volunteer, RoleType, AccessLevel } from '../types';
+import { Volunteer, RoleType, AccessLevel } from '@/types';
 import { Plus, Trash2, User, Check, Image as ImageIcon, Camera, Upload, X, Shield, Mail, Info } from 'lucide-react';
 
 interface VolunteerListProps {

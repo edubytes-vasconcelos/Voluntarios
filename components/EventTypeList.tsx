@@ -1,6 +1,7 @@
 
+
 import React, { useState } from 'react';
-import { EventType } from '../types';
+import { EventType } from '@/types';
 import { Plus, Trash2, Calendar, Tag, AlertCircle, Loader2 } from 'lucide-react'; // Adicionado AlertCircle e Loader2
 
 interface EventTypeListProps {

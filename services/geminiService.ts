@@ -1,5 +1,6 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
-import { Volunteer, ServiceEvent, RoleType } from '../types';
+import { Volunteer, ServiceEvent, RoleType } from '@/types';
 
 // Initialize Gemini Client
 // The API key must be obtained exclusively from the environment variable process.env.API_KEY.
