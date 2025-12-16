@@ -14,8 +14,9 @@ export default defineConfig(({ mode }) => {
       outDir: 'dist', // Garante que a saída do build seja 'dist'
     },
     resolve: {
+      // Correctly resolve __dirname for ESM context
       alias: {
-        '@': path.resolve(__dirname, './'), // Alias '@' apontando para a raiz do projeto
+        '@': path.resolve(path.dirname(import.meta.url), './'), // Alias '@' apontando para a raiz do projeto
       },
     },
     define: {
@@ -24,4 +25,3 @@ export default defineConfig(({ mode }) => {
     }
   };
 });
-    
