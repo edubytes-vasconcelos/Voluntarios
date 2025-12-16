@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Volunteer, ServiceEvent, Ministry, EventType, AccessLevel, Team, AuditLogEntry, Organization } from './types';
 // Removed unused INITIAL_* imports to prevent accidental inheritance of sample data
@@ -56,6 +55,9 @@ const App: React.FC = () => {
 
   // New state for mobile config menu
   const [showConfigMenu, setShowConfigMenu] = useState(false);
+
+  // NEW: State for notification banner visibility
+  const [showVolunteerNotification, setShowVolunteerNotification] = useState(true);
 
   // Check Auth on Mount
   useEffect(() => {
@@ -894,17 +896,24 @@ CREATE UNIQUE INDEX IF NOT EXISTS teams_org_name_idx ON public.teams (organizati
                 )}
 
                 {/* Volunteer Notification Banner */}
-                {myNextAssignment && currentOrg && (
-                    <div className="mb-6 bg-brand-accent/20 border border-brand-accent rounded-xl p-4 flex items-center gap-4 animate-fade-in print:hidden">
+                {myNextAssignment && currentOrg && showVolunteerNotification && (
+                    <div className="mb-6 bg-brand-accent/20 border border-brand-accent rounded-xl p-4 flex items-start gap-4 animate-fade-in print:hidden relative">
                         <div className="bg-brand-primary text-white p-3 rounded-full">
                             <Bell size={20} />
                         </div>
-                        <div>
+                        <div className="flex-1">
                             <h3 className="font-bold text-brand-primary">Você está escalado em breve!</h3>
                             <p className="text-sm text-brand-secondary">
                                 {myNextAssignment.title} • {new Date(myNextAssignment.date).toLocaleDateString('pt-BR', { timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long' })}
                             </p>
                         </div>
+                        <button 
+                            onClick={() => setShowVolunteerNotification(false)}
+                            className="absolute top-2 right-2 p-1.5 text-brand-muted hover:text-brand-secondary hover:bg-brand-accent/30 rounded-full transition-colors"
+                            title="Fechar notificação"
+                        >
+                            <X size={18} />
+                        </button>
                     </div>
                 )}
 
