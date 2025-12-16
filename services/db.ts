@@ -26,7 +26,7 @@ export const db = {
           // Se a função não existir, lançamos erro específico para a UI pedir atualização do SQL
           if (error.code === '42883') throw new Error("MISSING_DB_FUNCTION");
           console.error("Erro no auto-claim:", error);
-          return false;
+          throw error; // Relança o erro para ser tratado no App.tsx
       }
 
       return data as boolean;
@@ -47,6 +47,7 @@ export const db = {
       admin_avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(adminUser.name)}&background=004a5e&color=fff`
     });
 
+    // CRÍTICO: Verifique o objeto de erro EXPLICITAMENTE após a chamada RPC
     if (error) {
         console.error("Erro RPC:", error);
         
@@ -56,50 +57,58 @@ export const db = {
              throw new Error("MISSING_DB_FUNCTION"); 
         }
         
-        throw error;
+        throw error; // Relança qualquer outro erro retornado pela RPC
     }
 
     return data;
   },
 
   async getMyOrganization(): Promise<Organization | null> {
+    try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session || !session.user) return null;
 
       // Busca dados do voluntário para saber a ID da organização
-      // Adicionamos .maybeSingle() para evitar erro se não encontrar
       const { data: profile, error: profileError } = await supabase
         .from('volunteers')
         .select('organization_id')
-        .eq('id', session.user.id) // Supabase Auth ID é UUID, mas comparamos com ID texto do volunteer
-        .maybeSingle(); 
+        .eq('id', session.user.id)
+        .maybeSingle();
       
-      if (profileError) {
-          // CRÍTICO: Detecta erro de recursão infinita no RLS (42P17)
-          // Se isso acontecer, o banco está quebrado. Lançamos erro específico para a UI mostrar o script de fix.
-          if (profileError.code === '42P17' || profileError.message?.includes('infinite recursion')) {
-              // Não loga console.error para evitar spam, apenas lança o erro controlado
-              throw new Error("DB_POLICY_ERROR");
-          }
-          console.error("Erro ao buscar perfil:", profileError);
-          return null;
-      }
+      if (profileError) throw profileError; // Joga o erro para o catch centralizado
 
       if (!profile || !profile.organization_id) {
-          return null;
+        return null;
       }
 
       // Com a ID, busca o nome da organização
       const { data: org, error: orgError } = await supabase
-          .from('organizations')
-          .select('id, name')
-          .eq('id', profile.organization_id)
-          .maybeSingle();
+        .from('organizations')
+        .select('id, name')
+        .eq('id', profile.organization_id)
+        .maybeSingle();
 
-      if (orgError || !org) return null;
-      
+      if (orgError) throw orgError; // Joga o erro para o catch centralizado
+
+      if (!org) return null;
+
       setDbOrganizationId(org.id);
       return { id: org.id, name: org.name };
+
+    } catch (error: any) {
+      // Bloco CATCH centralizado para toda a função
+      console.error("Erro em getMyOrganization:", error);
+
+      if (error.message && error.message.includes('Failed to fetch')) {
+        throw new Error("NETWORK_ERROR"); // Padroniza o erro de rede
+      }
+      if (error.code === '42P17' || error.message?.includes('infinite recursion')) {
+        throw new Error("DB_POLICY_ERROR"); // Padroniza erro de RLS
+      }
+      
+      // Se não for um erro conhecido, relança o original
+      throw error;
+    }
   },
 
   // --- Volunteers ---

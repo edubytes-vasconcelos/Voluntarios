@@ -33,6 +33,7 @@ const App: React.FC = () => {
   const [userProfile, setUserProfile] = useState<Volunteer | null>(null);
   const [currentOrg, setCurrentOrg] = useState<Organization | null>(null);
   const [appReady, setAppReady] = useState(false);
+  const [isRegistering, setIsRegistering] = useState(false); // Prevents Login unmount during church creation
 
   const [activeTab, setActiveTab] = useState<'schedule' | 'volunteers' | 'teams' | 'ministries' | 'eventTypes'>('schedule');
   
@@ -82,10 +83,10 @@ const App: React.FC = () => {
 
   // Load Data when session exists - CORREÇÃO: Depende do ID do usuário, não do objeto session inteiro
   useEffect(() => {
-    if (session?.user?.id) {
+    if (session?.user?.id && !isRegistering) {
       loadData();
     }
-  }, [session?.user?.id]);
+  }, [session?.user?.id, isRegistering]);
 
   const loadData = async () => {
     if (isLoadingRef.current) return; // Evita chamadas simultâneas
@@ -100,17 +101,30 @@ const App: React.FC = () => {
       // 1. Establish Organization Context
       let org = null;
       
-      // Tenta buscar organização
       try {
           org = await db.getMyOrganization();
+          
+          // RETRY LOGIC for Race Conditions (New Church Registration)
+          if (!org) {
+              console.log("Organização não encontrada. Tentando novamente em breve...");
+              await new Promise(resolve => setTimeout(resolve, 1500));
+              org = await db.getMyOrganization();
+          }
+
       } catch (innerErr: any) {
-          if (innerErr.message === 'DB_POLICY_ERROR') {
+          // NOVO: Captura erros padronizados de db.ts
+          if (innerErr.message === 'DB_POLICY_ERROR' || innerErr.message === 'NETWORK_ERROR') {
               setNeedsDbRepair(true);
-              setRepairErrorMsg('Erro de políticas de segurança.');
+              setRepairErrorMsg(
+                  innerErr.message === 'NETWORK_ERROR'
+                  ? 'Erro de rede ao buscar dados. Verifique sua conexão e se o script SQL está atualizado no Supabase.'
+                  : 'Erro de políticas de segurança. Execute o script SQL de atualização para corrigir.'
+              );
               setLoading(false);
               isLoadingRef.current = false;
-              return;
+              return; // Para a execução
           }
+          console.error("Erro inesperado ao buscar organização:", innerErr);
       }
 
       // Se não encontrou organização, TENTA REIVINDICAR PERFIL por email
@@ -127,6 +141,14 @@ const App: React.FC = () => {
                if (claimErr.message === 'MISSING_DB_FUNCTION') {
                    setNeedsDbRepair(true);
                    setRepairErrorMsg('Atualização necessária para vincular contas existentes.');
+                   setLoading(false);
+                   isLoadingRef.current = false;
+                   return;
+               }
+               // Check for network errors during profile claim (already implemented)
+               if (claimErr.message && typeof claimErr.message === 'string' && claimErr.message.includes('Failed to fetch')) {
+                   setNeedsDbRepair(true); 
+                   setRepairErrorMsg('Erro de rede ao vincular perfil. Verifique sua conexão e se o script SQL está atualizado no Supabase.');
                    setLoading(false);
                    isLoadingRef.current = false;
                    return;
@@ -356,8 +378,16 @@ const App: React.FC = () => {
   
   if (!appReady) return <div className="h-screen flex items-center justify-center bg-brand-bg"><Loader2 className="animate-spin text-brand-primary"/></div>;
 
-  if (!session) {
-    return <Login onLoginSuccess={() => loadData()} />;
+  // IMPORTANT: Keep Login mounted if registering, even if session exists
+  if (!session || isRegistering) {
+    return <Login 
+        onLoginSuccess={() => { 
+            setIsRegistering(false); 
+            // loadData will be triggered by useEffect when isRegistering becomes false
+        }} 
+        onRegisterStart={() => setIsRegistering(true)}
+        onRegisterEnd={() => setIsRegistering(false)}
+    />;
   }
 
   // Handle case where user logged in but data is fetching or user has no org
@@ -748,7 +778,7 @@ GRANT ALL ON TABLE push_subscriptions TO authenticated;`;
                         
                         <div className="flex flex-col gap-3 w-full max-w-xs">
                              <button 
-                                onClick={loadData} 
+                                onClick={() => loadData()} 
                                 className="bg-brand-primary hover:bg-brand-primary-hover text-white px-6 py-2.5 rounded-lg font-medium shadow-sm transition-colors flex items-center justify-center gap-2"
                              >
                                 <Search size={18} />
