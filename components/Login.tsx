@@ -1,8 +1,7 @@
 
-
 import React, { useState, useEffect } from 'react';
-import { supabase } from '@/services/supabaseClient';
-import { db } from '@/services/db';
+import { supabase } from '../services/supabaseClient';
+import { db } from '../services/db';
 import { Loader2, LogIn, Mail, Lock, UserPlus, CheckCircle, Building2, User, AlertCircle, Database, RefreshCw, Copy } from 'lucide-react';
 
 interface LoginProps {
@@ -152,6 +151,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onRegisterStart, onRegist
                     return; // Prevent further execution
                 }
                 // Se der erro de "duplicate key" em volunteers, significa que o usuário já tem uma igreja/perfil
+                // Fix: Access `code` property from `dbError` not `db`
                 if (dbError.message?.includes('duplicate key') || dbError.code === '23505') {
                     throw new Error("Este usuário já possui um perfil ou igreja cadastrada. Tente fazer login ou use um email diferente.");
                 }
