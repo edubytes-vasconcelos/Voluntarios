@@ -42,7 +42,7 @@ const App: React.FC = () => {
   const [teams, setTeams] = useState<Team[]>([]); 
   const [services, setServices] = useState<ServiceEvent[]>([]);
   const [ministries, setMinistries] = useState<Ministry[]>([]);
-  const [eventTypes, setEventTypes] = useState<EventType[]>(([]);
+  const [eventTypes, setEventTypes] = useState<EventType[]>([]); // CORREÇÃO: Removido parênteses extra aqui
   
   // CORREÇÃO: Inicia loading como true para evitar flash da tela de cadastro
   const [loading, setLoading] = useState(true); 
