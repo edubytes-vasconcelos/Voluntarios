@@ -140,10 +140,13 @@ const NotificationToggle: React.FC<NotificationToggleProps> = ({ userId }) => {
       if (perm === 'granted') {
         if ('serviceWorker' in navigator) {
             try {
-                // Registra o Service Worker
-                let reg = await navigator.serviceWorker.register('/sw.js');
+                // Primeiro, registra o Service Worker
+                await navigator.serviceWorker.register('/sw.js');
+                
+                // CRÍTICO: Espera até que o Service Worker esteja ATIVO e pronto
+                let reg = await navigator.serviceWorker.ready;
                 setSwRegistration(reg);
-                console.log("Notificações: Service Worker registrado com sucesso:", reg);
+                console.log("Notificações: Service Worker registrado e ATIVO com sucesso:", reg);
                 
                 // Tenta fazer a subscrição real
                 try {
@@ -160,8 +163,8 @@ const NotificationToggle: React.FC<NotificationToggleProps> = ({ userId }) => {
                         });
                         console.log("Notificações: Mensagem de ativação enviada ao Service Worker.");
                     } else {
-                        console.warn("Notificações: Service Worker ativo não disponível para enviar mensagem de ativação. Usando new Notification() como fallback.");
-                        // Fallback para new Notification se não conseguir comunicar com SW ativo
+                        // Este fallback deve ser raro, pois 'ready' já garante um SW ativo
+                        console.warn("Notificações: Service Worker ativo não disponível para enviar mensagem de ativação APÓS READY. Usando new Notification() como fallback.");
                         new Notification('Notificações Ativadas!', {
                             body: 'Você receberá alertas da escala.',
                             icon: NOTIFICATION_ICON_URL
