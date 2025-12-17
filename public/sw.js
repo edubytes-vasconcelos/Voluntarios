@@ -1,6 +1,6 @@
 
 
-const NOTIFICATION_ICON_URL = "https://ui-avatars.com/api/?name=GE&background=004a5e&color=fff&size=192&rounded=true";
+const NOTIFICATION_ICON_URL = "/icon.png"; // Aponta para um ícone local no diretório public/
 
 self.addEventListener('install', (event) => {
   self.skipWaiting(); // Força a ativação imediata
@@ -16,8 +16,8 @@ self.addEventListener('push', function(event) {
   const title = data.title || 'Nova Atualização - IASD Bosque';
   const options = {
     body: data.body || 'Você tem uma nova mensagem na escala.',
-    icon: NOTIFICATION_ICON_URL, // Usando URL consistente
-    badge: NOTIFICATION_ICON_URL, // Usando URL consistente para o badge
+    icon: NOTIFICATION_ICON_URL, // Usando URL consistente (local)
+    badge: NOTIFICATION_ICON_URL, // Usando URL consistente para o badge (local)
     data: data.url || '/',
     vibrate: [100, 50, 100]
   };

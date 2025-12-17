@@ -7,8 +7,8 @@ interface NotificationToggleProps {
   userId?: string;
 }
 
-// URL do ícone de notificação consistente com o manifest.json
-const NOTIFICATION_ICON_URL = "https://ui-avatars.com/api/?name=GE&background=004a5e&color=fff&size=192&rounded=true";
+// URL do ícone de notificação consistente com o manifest.json e com a prática de PWA (ícone local)
+const NOTIFICATION_ICON_URL = "/icon.png"; // Aponta para um ícone local no diretório public/
 
 const NotificationToggle: React.FC<NotificationToggleProps> = ({ userId }) => {
   const [permission, setPermission] = useState<NotificationPermission>('default');
@@ -160,7 +160,7 @@ const NotificationToggle: React.FC<NotificationToggleProps> = ({ userId }) => {
                         });
                         console.log("Notificações: Mensagem de ativação enviada ao Service Worker.");
                     } else {
-                        console.warn("Notificações: Service Worker ativo não disponível para enviar mensagem de ativação.");
+                        console.warn("Notificações: Service Worker ativo não disponível para enviar mensagem de ativação. Usando new Notification() como fallback.");
                         // Fallback para new Notification se não conseguir comunicar com SW ativo
                         new Notification('Notificações Ativadas!', {
                             body: 'Você receberá alertas da escala.',
