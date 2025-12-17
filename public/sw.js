@@ -1,6 +1,6 @@
 
 
-const NOTIFICATION_ICON_URL = "/icon.png"; // Aponta para um ícone local no diretório public/
+// REMOVIDO: NOTIFICATION_ICON_URL não é mais usada diretamente nas chamadas new Notification() ou no SW
 
 self.addEventListener('install', (event) => {
   console.log("Service Worker: Evento 'install' disparado.");

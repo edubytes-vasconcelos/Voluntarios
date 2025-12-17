@@ -7,8 +7,7 @@ interface NotificationToggleProps {
   userId?: string;
 }
 
-// URL do ícone de notificação consistente com o manifest.json e com a prática de PWA (ícone local)
-const NOTIFICATION_ICON_URL = "/icon.png"; // Aponta para um ícone local no diretório public/
+// REMOVIDO: NOTIFICATION_ICON_URL não é mais usada diretamente nas chamadas new Notification() ou no SW
 
 const NotificationToggle: React.FC<NotificationToggleProps> = ({ userId }) => {
   const [permission, setPermission] = useState<NotificationPermission>('default');
@@ -158,7 +157,6 @@ const NotificationToggle: React.FC<NotificationToggleProps> = ({ userId }) => {
                             command: 'showTestNotification',
                             title: 'Notificações Ativadas!',
                             body: 'Você receberá alertas da escala.',
-                            // AQUI REMOVEMOS O ICON: NOTIFICATION_ICON_URL,
                             tag: 'initial-activation'
                         });
                         console.log("Notificações: Mensagem de ativação enviada ao Service Worker.");
@@ -167,7 +165,6 @@ const NotificationToggle: React.FC<NotificationToggleProps> = ({ userId }) => {
                         console.warn("Notificações: Service Worker ativo não disponível para enviar mensagem de ativação APÓS READY. Usando new Notification() como fallback.");
                         new Notification('Notificações Ativadas!', {
                             body: 'Você receberá alertas da escala.',
-                            // REMOVIDO: icon: NOTIFICATION_ICON_URL
                         });
                     }
 
@@ -215,7 +212,6 @@ const NotificationToggle: React.FC<NotificationToggleProps> = ({ userId }) => {
                 try {
                     new Notification('🔔 Teste (Modo Simulado)', {
                         body: 'O sistema está funcionando! Em produção, isso seria uma notificação Push real.',
-                        // REMOVIDO: icon: NOTIFICATION_ICON_URL
                     });
                     console.log("Notificações: Notificação new Notification() disparada em modo simulado.");
                 } catch (e) {
@@ -237,7 +233,6 @@ const NotificationToggle: React.FC<NotificationToggleProps> = ({ userId }) => {
                     command: 'showTestNotification',
                     title: 'Teste de Escala',
                     body: 'O sistema de notificações está funcionando neste dispositivo.',
-                    // AQUI REMOVEMOS O ICON: NOTIFICATION_ICON_URL,
                     tag: 'test-notification'
                 });
                 console.log("Notificações: Mensagem de teste enviada ao Service Worker.");

@@ -34,11 +34,12 @@ const VolunteerList: React.FC<VolunteerListProps> = ({ volunteers, roles, onAddV
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
 
-  // If current user is a leader, they can only manage volunteers within their roles
-  // We determine allowed roles based on the current user's profile
+  // If current user is a leader, they can only manage volunteers within their roles (ministries they lead).
+  // This ensures a leader's *management* scope is limited, while their *volunteer* participation
+  // in other ministries is still allowed (handled by schedule view/RSVP).
   const allowedRoles = currentUser?.accessLevel === 'leader' 
     ? roles.filter(r => currentUser.roles.includes(r))
-    : roles; // Admin sees all
+    : roles; // Admin sees all roles and can assign any
 
   // Auto-select roles for leaders when opening modal
   useEffect(() => {
@@ -162,7 +163,7 @@ const VolunteerList: React.FC<VolunteerListProps> = ({ volunteers, roles, onAddV
     return `https://ui-avatars.com/api/?name=${encodeURIComponent(newName || 'Novo')}&background=e2e8f0&color=64748b`;
   };
 
-  // Only Admin can create other Admins or Leaders
+  // Only Admin can create other Admins or Leaders. Leaders cannot change access levels.
   const canSetAccessLevel = currentUser?.accessLevel === 'admin';
 
   return (
@@ -283,7 +284,8 @@ const VolunteerList: React.FC<VolunteerListProps> = ({ volunteers, roles, onAddV
 
                   <div>
                       <label className="block text-sm font-medium text-brand-secondary mb-2">
-                        {currentUser?.accessLevel === 'leader' ? 'Ministérios que você lidera:' : 'Ministérios:'}
+                        {/* If current user is a leader, they only see roles they lead here for assigning new volunteers */}
+                        {currentUser?.accessLevel === 'leader' ? 'Ministérios que você pode atribuir (seus ministérios de liderança):' : 'Ministérios:'}
                       </label>
                       <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto p-1">
                       {allowedRoles.length > 0 ? allowedRoles.map(role => (
@@ -314,7 +316,7 @@ const VolunteerList: React.FC<VolunteerListProps> = ({ volunteers, roles, onAddV
                                 <input type="radio" name="access" value="leader" checked={newAccessLevel === 'leader'} onChange={() => setNewAccessLevel('leader')} className="text-brand-primary focus:ring-brand-primary"/>
                                 <span className="text-sm">Líder</span>
                             </label>
-                            <label className="flex items-center gap-2 cursor-pointer">
+                            <label className="flex items-center gap-2 cursor-2pointer">
                                 <input type="radio" name="access" value="admin" checked={newAccessLevel === 'admin'} onChange={() => setNewAccessLevel('admin')} className="text-brand-primary focus:ring-brand-primary"/>
                                 <span className="text-sm">Administrador</span>
                             </label>

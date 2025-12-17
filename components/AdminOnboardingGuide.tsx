@@ -24,7 +24,7 @@ interface AdminOnboardingGuideProps { // RENAMED: Interface name
 
 // Custom Logo Component mimicking the IASD diamond structure (duplicated for self-contained component)
 const IASDLogoSmall = ({ className }: { className?: string }) => (
-    <svg viewBox="0 0 100 100" fill="none" stroke="#004a5e" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <svg viewBox="0 0 100 100" fill="none" stroke="currentColor" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" className={className}>
       <path d="M50 5 L95 50 L50 95 L5 50 Z" />
       <path d="M50 5 L50 95" />
       <path d="M5 50 Q 27.5 50 50 27.5" />
