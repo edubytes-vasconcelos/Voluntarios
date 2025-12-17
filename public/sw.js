@@ -17,15 +17,23 @@ self.addEventListener('push', function(event) {
   const data = event.data ? event.data.json() : {};
   
   const title = data.title || 'Nova Atualização - IASD Bosque';
+  // Configura as opções da notificação.
+  // Para notificação PUSH, vamos também garantir que ICONE E BADGE sejam removidos temporariamente
+  // para depuração do problema 'undefined'.
   const options = {
     body: data.body || 'Você tem uma nova mensagem na escala.',
-    icon: NOTIFICATION_ICON_URL, // Usando URL consistente (local)
-    badge: NOTIFICATION_ICON_URL, // Usando URL consistente para o badge (local)
     data: data.url || '/',
     vibrate: [100, 50, 100]
+    // icon e badge são omitidos ou explicitamente removidos para este teste
   };
 
-  console.log("Service Worker: Disparando notificação 'push' com opções:", options);
+  // GARANTIA: Remove qualquer resquício de icon/badge que possa ter vindo na mensagem
+  delete options.icon;
+  delete options.badge;
+  
+  console.warn("Service Worker: Notificação PUSH disparada SEM ícone (modo de depuração para erro 'undefined').");
+  console.log("Service Worker: Opções FINAIS da notificação PUSH:", options); // Log das opções finais
+
   event.waitUntil(
     self.registration.showNotification(title, options)
       .catch(error => {
