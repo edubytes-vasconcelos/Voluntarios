@@ -70,20 +70,26 @@ self.addEventListener('notificationclick', function(event) {
 self.addEventListener('message', function(event) {
   console.log("Service Worker: Mensagem recebida do cliente:", event.data);
   if (event.data && event.data.command === 'showTestNotification') {
-    const { title, body, tag } = event.data; // Removido 'icon' do destructuring
+    // Destructuring para pegar apenas as propriedades necessárias do event.data
+    const { title, body, tag } = event.data; 
     
-    // Configura as opções da notificação SEM ICONE PARA TESTE.
-    // Isso é uma medida de DEBUG. Se funcionar sem ícone, o problema está no arquivo /icon.png.
+    // Configura as opções da notificação.
+    // Para notificação de TESTE, vamos garantir que ICONE E BADGE sejam removidos.
+    // Isso é uma medida de DEBUG extrema para o problema 'undefined'.
     const options = {
       body: body,
       tag: tag,
       vibrate: [100, 50, 100]
-      // Icone e badge REMOVIDOS intencionalmente para teste.
+      // icon e badge são omitidos ou explicitamente removidos para este teste
     };
+    
+    // GARANTIA: Remove qualquer resquício de icon/badge que possa ter vindo na mensagem
+    delete options.icon;
+    delete options.badge;
     
     console.warn("Service Worker: Notificação de teste disparada SEM ícone (modo de depuração para erro 'undefined').");
     
-    console.log("Service Worker: Disparando notificação de teste com opções:", options);
+    console.log("Service Worker: Opções FINAIS da notificação de teste:", options); // Log das opções finais
     event.waitUntil(
       self.registration.showNotification(title, options)
         .catch(error => {
