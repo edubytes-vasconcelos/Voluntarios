@@ -167,7 +167,7 @@ const NotificationToggle: React.FC<NotificationToggleProps> = ({ userId }) => {
                         console.warn("Notificações: Service Worker ativo não disponível para enviar mensagem de ativação APÓS READY. Usando new Notification() como fallback.");
                         new Notification('Notificações Ativadas!', {
                             body: 'Você receberá alertas da escala.',
-                            icon: NOTIFICATION_ICON_URL
+                            // REMOVIDO: icon: NOTIFICATION_ICON_URL
                         });
                     }
 
@@ -215,7 +215,7 @@ const NotificationToggle: React.FC<NotificationToggleProps> = ({ userId }) => {
                 try {
                     new Notification('🔔 Teste (Modo Simulado)', {
                         body: 'O sistema está funcionando! Em produção, isso seria uma notificação Push real.',
-                        icon: NOTIFICATION_ICON_URL // Usando URL consistente
+                        // REMOVIDO: icon: NOTIFICATION_ICON_URL
                     });
                     console.log("Notificações: Notificação new Notification() disparada em modo simulado.");
                 } catch (e) {
