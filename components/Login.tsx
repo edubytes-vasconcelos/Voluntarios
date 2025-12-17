@@ -28,11 +28,6 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onRegisterStart, onRegist
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-  // Removido: New states for setup repair within Login.tsx - handled by App.tsx
-  // const [needsSetupRepair, setNeedsSetupRepair] = useState(false);
-  // const [setupRepairMsg, setSetupRepairMsg] = useState<string | null>(null);
-
-
   // Limpa estado temporário ao mudar de tela
   useEffect(() => {
     localStorage.removeItem('church_registration_name');
@@ -46,18 +41,12 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onRegisterStart, onRegist
     setConfirmPassword(''); // Reset confirm password
     setName('');
     setChurchName('');
-    // Removido: Reset repair state
-    // setNeedsSetupRepair(false); 
-    // setSetupRepairMsg(null); 
   }
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
-    // Removido: Reset repair state
-    // setNeedsSetupRepair(false); 
-    // setSetupRepairMsg(null); 
 
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -75,9 +64,6 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onRegisterStart, onRegist
     e.preventDefault();
     setLoading(true);
     setError(null);
-    // Removido: Reset repair state
-    // setNeedsSetupRepair(false); 
-    // setSetupRepairMsg(null); 
 
     if (password !== confirmPassword) {
       setError('As senhas não coincidem.');
@@ -93,7 +79,6 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onRegisterStart, onRegist
             setSuccessMessage("Conta criada! Verifique seu email.");
         } else {
             // Sessão atualizada automaticamente, App.tsx vai carregar
-            // setSuccessMessage("Conta criada! Peça ao seu líder para te adicionar na equipe."); // This path is now handled by App.tsx
         }
     } catch (err: any) {
         setError(err.message);
@@ -106,9 +91,6 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onRegisterStart, onRegist
     e.preventDefault();
     setLoading(true);
     setError(null);
-    // Removido: Reset repair state
-    // setNeedsSetupRepair(false); 
-    // setSetupRepairMsg(null); 
     
     if (password !== confirmPassword) {
       setError('As senhas não coincidem.');
@@ -132,7 +114,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onRegisterStart, onRegist
             const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({ email, password });
             if (loginError) throw new Error("Usuário já existe, mas a senha está incorreta.");
             authData.user = loginData.user;
-            authData.session = loginData.session; // Fix: Corrected reference for session data after sign-in
+            authData.session = loginData.session; // Fix data.session reference
         } else if (authError) {
             throw authError;
         }
@@ -159,17 +141,18 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onRegisterStart, onRegist
                 // Se falhar a criação do banco, FAZEMOS LOGOUT para limpar o estado
                 // e permitir que o usuário tente novamente ou veja o erro na tela de login.
                 await supabase.auth.signOut();
-                if (onRegisterEnd) onRegisterEnd(); // Notify App.tsx to unblock
-                
+                if (onRegisterEnd) onRegisterEnd();
+
                 // NEW: Handle specific errors during createOrganization by rethrowing them.
                 // App.tsx will catch and display the global repair screen if needed.
-                if (dbError.message && typeof dbError.message === 'string' && dbError.message.includes('Failed to fetch')) {
-                    throw new Error("NETWORK_ERROR_DURING_ORG_CREATION");
+                if (dbError.message === "NETWORK_ERROR_DURING_ORG_CREATION" || dbError.message === "MISSING_DB_FUNCTION_DURING_ORG_CREATION") {
+                    throw dbError; 
                 }
-                if (dbError.message === 'MISSING_DB_FUNCTION' || dbError.code === '42883') { // 42883 is "undefined_function"
-                    throw new Error("MISSING_DB_FUNCTION_DURING_ORG_CREATION");
+                // Se der erro de "duplicate key" em volunteers, significa que o usuário já tem uma igreja/perfil
+                if (dbError.message?.includes('duplicate key') || dbError.code === '23505') {
+                    throw new Error("Este usuário já possui um perfil ou igreja cadastrada. Tente fazer login ou use um email diferente.");
                 }
-                throw dbError; 
+                throw new Error("Erro desconhecido ao criar igreja: " + (dbError.message || "")); // Relança outros erros
              }
         } else {
              if (onRegisterEnd) onRegisterEnd();
@@ -178,7 +161,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onRegisterStart, onRegist
 
     } catch (err: any) {
         console.error("Registration Error:", err);
-        if (onRegisterEnd) onRegisterEnd(); // Ensure onRegisterEnd is called even on top-level errors
+        if (onRegisterEnd) onRegisterEnd();
         setError(err.message || "Erro desconhecido ao registrar.");
         setLoading(false);
     }
@@ -227,7 +210,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onRegisterStart, onRegist
 
   // Custom Logo for Login Screen
   const IASDLogoLarge = ({ className }: { className?: string }) => (
-    <svg viewBox="0 0 100 100" fill="none" stroke="#004a5e" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <svg viewBox="0 0 100 100" fill="none" stroke="currentColor" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" className={className}>
       <path d="M50 5 L95 50 L50 95 L5 50 Z" />
       <path d="M50 5 L50 95" />
       <path d="M5 50 Q 27.5 50 50 27.5" />

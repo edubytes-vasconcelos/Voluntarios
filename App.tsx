@@ -150,6 +150,13 @@ const App: React.FC = () => {
             isLoadingRef.current = false;
             return;
           }
+          if (innerErr.message === 'MISSING_DB_FUNCTION_FOR_CLAIM') {
+            setNeedsDbRepair(true);
+            setRepairErrorMsg('Atualização necessária para vincular contas existentes (função `claim_profile_by_email` ausente).');
+            setLoading(false);
+            isLoadingRef.current = false;
+            return;
+          }
 
           console.error("Erro inesperado ao buscar organização:", innerErr);
       }
@@ -165,9 +172,9 @@ const App: React.FC = () => {
                   org = await db.getMyOrganization();
               }
           } catch (claimErr: any) {
-               if (claimErr.message === 'MISSING_DB_FUNCTION') {
+               if (claimErr.message === 'MISSING_DB_FUNCTION_FOR_CLAIM') { // Usando o novo erro específico
                    setNeedsDbRepair(true);
-                   setRepairErrorMsg('Atualização necessária para vincular contas existentes.');
+                   setRepairErrorMsg('Atualização necessária para vincular contas existentes (função `claim_profile_by_email` ausente).');
                    setLoading(false);
                    isLoadingRef.current = false;
                    return;
@@ -227,8 +234,28 @@ const App: React.FC = () => {
       // Fallback if DB_POLICY_ERROR wasn't caught in the inner loop
       if (err.message === 'DB_POLICY_ERROR' || err.message === 'RECURSION_ERROR') {
           setNeedsDbRepair(true);
-      } else {
-          setError("Não foi possível carregar os dados.");
+          setRepairErrorMsg('Erro de políticas de segurança. Execute o script SQL de atualização para corrigir.');
+      } 
+      else if (err.message && err.message.includes('Failed to fetch')) {
+        setNeedsDbRepair(true); 
+        setRepairErrorMsg('Erro de rede ao buscar dados. Verifique sua conexão e se o script SQL está atualizado no Supabase.');
+      }
+      else if (err.message === 'NETWORK_ERROR_DURING_ORG_CREATION') {
+        setNeedsDbRepair(true);
+        setRepairErrorMsg('Erro de rede ao criar a igreja. Verifique sua conexão e se a função RPC `create_church_and_admin` está corretamente implantada no Supabase.');
+      }
+      else if (err.message === 'MISSING_DB_FUNCTION_DURING_ORG_CREATION') {
+        setNeedsDbRepair(true);
+        setRepairErrorMsg('Falha na configuração do banco de dados ao criar a igreja. Por favor, execute o script SQL de atualização.');
+      }
+      else if (err.message === 'MISSING_DB_FUNCTION_FOR_CLAIM') { // Tratamento do novo erro específico
+        setNeedsDbRepair(true);
+        setRepairErrorMsg('Atualização necessária para vincular contas existentes (função `claim_profile_by_email` ausente).');
+      }
+      else {
+          setError("Não foi possível carregar os dados."); // General error for other unhandled cases
+          setNeedsDbRepair(true); // Fallback: se algo deu errado e não foi tratado, sugere o reparo
+          setRepairErrorMsg("Erro desconhecido ao carregar dados. Tente executar o script SQL de atualização.");
       }
       // Safety Clear
       setVolunteers([]);
@@ -256,7 +283,7 @@ const App: React.FC = () => {
         setEventTypes([]);
         setUserProfile(null);
         setCurrentOrg(null);
-        setNeedsDbRepair(false);
+        setNeedsDbRepair(false); // Reset repair state on logout
         clearDbOrganizationId(); // Clear DB service static state
 
         await supabase.auth.signOut();

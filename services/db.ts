@@ -24,7 +24,7 @@ export const db = {
 
       if (error) {
           // Se a função não existir, lançamos erro específico para a UI pedir atualização do SQL
-          if (error.code === '42883') throw new Error("MISSING_DB_FUNCTION");
+          if (error.code === '42883') throw new Error("MISSING_DB_FUNCTION_FOR_CLAIM");
           console.error("Erro no auto-claim:", error);
           throw error; // Relança o erro para ser tratado no App.tsx
       }
