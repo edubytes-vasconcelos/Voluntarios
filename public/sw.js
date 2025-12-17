@@ -70,24 +70,18 @@ self.addEventListener('notificationclick', function(event) {
 self.addEventListener('message', function(event) {
   console.log("Service Worker: Mensagem recebida do cliente:", event.data);
   if (event.data && event.data.command === 'showTestNotification') {
-    const { title, body, icon, tag } = event.data;
+    const { title, body, tag } = event.data; // Removido 'icon' do destructuring
     
-    // Configura as opções da notificação.
-    // O ícone é adicionado condicionalmente para testar se ele causa o problema 'undefined'.
+    // Configura as opções da notificação SEM ICONE PARA TESTE.
+    // Isso é uma medida de DEBUG. Se funcionar sem ícone, o problema está no arquivo /icon.png.
     const options = {
       body: body,
       tag: tag,
       vibrate: [100, 50, 100]
+      // Icone e badge REMOVIDOS intencionalmente para teste.
     };
-
-    // DEBUGGING: Adiciona o ícone apenas se for uma string válida e não vazia.
-    // Se a notificação funcionar sem o ícone, o problema está no arquivo /icon.png.
-    if (typeof icon === 'string' && icon.length > 0) {
-        options.icon = icon;
-        options.badge = icon; // Também aplica ao badge
-    } else {
-        console.warn("Service Worker: Notificação de teste disparada SEM ícone, pois o ícone fornecido era inválido ou ausente. Verifique se public/icon.png existe.");
-    }
+    
+    console.warn("Service Worker: Notificação de teste disparada SEM ícone (modo de depuração para erro 'undefined').");
     
     console.log("Service Worker: Disparando notificação de teste com opções:", options);
     event.waitUntil(
