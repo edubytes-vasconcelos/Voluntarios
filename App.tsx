@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Volunteer, ServiceEvent, Ministry, EventType, AccessLevel, Team, AuditLogEntry, Organization } from './types';
 // Removed unused INITIAL_* imports to prevent accidental inheritance of sample data
@@ -10,13 +9,16 @@ import EventTypeList from './components/EventTypeList';
 import TeamList from './components/TeamList';
 import Login from './components/Login';
 import NotificationToggle from './components/NotificationToggle';
+import AdminOnboardingGuide from './components/AdminOnboardingGuide'; // RENAMED: Import AdminOnboardingGuide
+import UserOnboardingGuide from './components/UserOnboardingGuide'; // NEW: Import UserOnboardingGuide
+import useLocalStorage from './hooks/useLocalStorage'; // NEW: Import useLocalStorage
 import { db, clearDbOrganizationId } from './services/db';
 import { supabase } from './services/supabaseClient';
 import { Users, Calendar, BookOpen, ListFilter, Loader2, AlertCircle, Database, LogOut, Bell, CheckCircle2, Shield, Menu, X, Settings, Building, RefreshCw, ArrowRight, Copy, Search } from 'lucide-react';
 
 // Custom Logo Component mimicking the IASD diamond structure
 const IASDLogo = ({ className }: { className?: string }) => (
-  <svg viewBox="0 0 100 100" fill="none" stroke="currentColor" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" className={className}>
+  <svg viewBox="0 0 100 100" fill="none" stroke="#004a5e" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" className={className}>
     {/* Diamond Shape */}
     <path d="M50 5 L95 50 L50 95 L5 50 Z" />
     {/* Vertical Line */}
@@ -59,6 +61,11 @@ const App: React.FC = () => {
 
   // NEW: State for notification banner visibility
   const [showVolunteerNotification, setShowVolunteerNotification] = useState(true);
+
+  // NEW: Onboarding States (two separate for clarity)
+  const [adminOnboardingCompleted, setAdminOnboardingCompleted] = useLocalStorage<Record<string, boolean>>('admin_onboarding_completed', {});
+  const [userOnboardingCompleted, setUserOnboardingCompleted] = useLocalStorage<Record<string, boolean>>('user_onboarding_completed', {});
+
 
   // Check Auth on Mount
   useEffect(() => {
@@ -111,7 +118,7 @@ const App: React.FC = () => {
           // RETRY LOGIC for Race Conditions (New Church Registration)
           if (!org) {
               console.log("Organização não encontrada. Tentando novamente em breve...");
-              await new Promise(resolve => setTimeout(resolve, 1500));
+              await new Promise(resolve => setTimeout(resolve, 500)); // Pequeno delay
               org = await db.getMyOrganization();
           }
 
@@ -128,6 +135,22 @@ const App: React.FC = () => {
               isLoadingRef.current = false;
               return; // Para a execução
           }
+          // Catch specific errors from Login.tsx's handleRegisterChurch
+          if (innerErr.message === 'NETWORK_ERROR_DURING_ORG_CREATION') {
+            setNeedsDbRepair(true);
+            setRepairErrorMsg('Erro de rede ao criar a igreja. Verifique sua conexão e se a função RPC `create_church_and_admin` está corretamente implantada no Supabase.');
+            setLoading(false);
+            isLoadingRef.current = false;
+            return;
+          }
+          if (innerErr.message === 'MISSING_DB_FUNCTION_DURING_ORG_CREATION') {
+            setNeedsDbRepair(true);
+            setRepairErrorMsg('Falha na configuração do banco de dados ao criar a igreja. Por favor, execute o script SQL de atualização.');
+            setLoading(false);
+            isLoadingRef.current = false;
+            return;
+          }
+
           console.error("Erro inesperado ao buscar organização:", innerErr);
       }
 
@@ -172,6 +195,9 @@ const App: React.FC = () => {
           setEventTypes([]);
           // Não retornamos aqui para permitir que o finally execute e pare o loading corretamente
       } else {
+          // *** FIX: Add a small delay here to mitigate RLS consistency issues ***
+          await new Promise(resolve => setTimeout(resolve, 500)); 
+
           // 2. Load Entity Data apenas se tiver organização
           const [vData, tData, sData, mData, eData] = await Promise.all([
             db.getVolunteers(),
@@ -188,7 +214,7 @@ const App: React.FC = () => {
           setEventTypes(eData);
 
           // Identify Current User Profile
-          if (session?.user?.email) {
+          if (session?.user?.id) { // Use session.user.id directly
             let currentUser = vData.find(v => v.id === session.user.id);
             if (currentUser) {
                 setUserProfile(currentUser);
@@ -411,6 +437,7 @@ const App: React.FC = () => {
   if (!appReady) return <div className="h-screen flex items-center justify-center bg-brand-bg"><Loader2 className="animate-spin text-brand-primary"/></div>;
 
   // IMPORTANT: Keep Login mounted if registering, even if session exists
+  // Fixed: Condition now correctly includes currentOrg check for the "no organization" fallback
   if (!session || isRegistering) {
     return <Login 
         onLoginSuccess={() => { 
@@ -773,6 +800,33 @@ CREATE UNIQUE INDEX IF NOT EXISTS teams_org_name_idx ON public.teams (organizati
       );
   };
 
+  // --- Onboarding Check Logic ---
+  // Admin Onboarding: for new churches / admin users
+  const showAdminOnboarding = currentOrg && userProfile && userProfile.accessLevel === 'admin' && !adminOnboardingCompleted[currentOrg.id];
+
+  const handleAdminOnboardingComplete = () => {
+    if (currentOrg) {
+        setAdminOnboardingCompleted(prev => ({ ...prev, [currentOrg.id]: true }));
+        // After admin onboarding, check for user onboarding or go to schedule
+        // The useEffect for user onboarding will then trigger if needed.
+        if (userProfile && userProfile.accessLevel === 'volunteer' && !userOnboardingCompleted[userProfile.id]) {
+            // No explicit action needed here, the conditional rendering will pick it up
+        } else {
+            setActiveTab('schedule');
+        }
+    }
+  };
+
+  // User Onboarding: for any volunteer user in any church
+  const showUserOnboarding = currentOrg && userProfile && userProfile.accessLevel === 'volunteer' && !userOnboardingCompleted[userProfile.id];
+
+  const handleUserOnboardingComplete = () => {
+    if (userProfile) {
+        setUserOnboardingCompleted(prev => ({ ...prev, [userProfile.id]: true }));
+        setActiveTab('schedule'); // Redirect to schedule after user onboarding
+    }
+  };
+  
   return (
     <div className="flex h-screen bg-brand-bg overflow-hidden flex-col md:flex-row">
       
@@ -871,7 +925,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS teams_org_name_idx ON public.teams (organizati
             <div className="max-w-5xl mx-auto print:max-w-none">
                 
                 {/* Fallback View for No Organization */}
-                {!currentOrg && !loading && !needsDbRepair && (
+                {!currentOrg && !loading && !needsDbRepair && !showAdminOnboarding && !showUserOnboarding && (
                     <div className="flex flex-col items-center justify-center py-12 text-center animate-fade-in">
                         <div className="bg-brand-bg p-6 rounded-full mb-4">
                             <Building size={48} className="text-brand-muted" />
@@ -904,8 +958,36 @@ CREATE UNIQUE INDEX IF NOT EXISTS teams_org_name_idx ON public.teams (organizati
                     </div>
                 )}
 
+                {/* Admin Onboarding Guide - Render only if conditions met */}
+                {showAdminOnboarding && currentOrg && userProfile && (
+                    <AdminOnboardingGuide
+                        organizationId={currentOrg.id}
+                        onOnboardingComplete={handleAdminOnboardingComplete}
+                        adminUserId={userProfile.id}
+                        adminUserName={userProfile.name}
+                        onAddMinistry={handleAddMinistry}
+                        onAddEventType={handleAddEventType}
+                        onAddService={handleAddService}
+                        ministries={ministries}
+                        eventTypes={eventTypes}
+                        volunteers={volunteers}
+                        services={services}
+                    />
+                )}
+
+                {/* User Onboarding Guide - Render only if conditions met AND Admin Onboarding is NOT active */}
+                {!showAdminOnboarding && showUserOnboarding && currentOrg && userProfile && (
+                    <UserOnboardingGuide
+                        onOnboardingComplete={handleUserOnboardingComplete}
+                        userName={userProfile.name}
+                        userId={userProfile.id}
+                        services={services}
+                    />
+                )}
+
                 {/* Volunteer Notification Banner */}
-                {myNextAssignment && currentOrg && showVolunteerNotification && (
+                {/* Only show if NO onboarding is active */}
+                {myNextAssignment && currentOrg && !showAdminOnboarding && !showUserOnboarding && showVolunteerNotification && (
                     <div className="mb-6 bg-brand-accent/20 border border-brand-accent rounded-xl p-4 flex items-start gap-4 animate-fade-in print:hidden relative">
                         <div className="bg-brand-primary text-white p-3 rounded-full">
                             <Bell size={20} />
@@ -926,7 +1008,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS teams_org_name_idx ON public.teams (organizati
                     </div>
                 )}
 
-                {activeTab === 'schedule' && currentOrg && (
+                {/* Main Tabs - Only show if ALL onboarding is complete or not applicable */}
+                {!showAdminOnboarding && !showUserOnboarding && activeTab === 'schedule' && currentOrg && (
                   <div className="animate-fade-in">
                     <ScheduleView 
                       services={services} 
@@ -946,7 +1029,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS teams_org_name_idx ON public.teams (organizati
                   </div>
                 )}
 
-                {activeTab === 'volunteers' && canManageVolunteers && currentOrg && (
+                {!showAdminOnboarding && !showUserOnboarding && activeTab === 'volunteers' && canManageVolunteers && currentOrg && (
                   <div className="animate-fade-in">
                     <VolunteerList 
                       volunteers={volunteers} 
@@ -958,7 +1041,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS teams_org_name_idx ON public.teams (organizati
                   </div>
                 )}
 
-                {activeTab === 'teams' && canManageVolunteers && currentOrg && (
+                {!showAdminOnboarding && !showUserOnboarding && activeTab === 'teams' && canManageVolunteers && currentOrg && (
                   <div className="animate-fade-in">
                     <TeamList 
                       teams={teams}
@@ -971,7 +1054,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS teams_org_name_idx ON public.teams (organizati
                   </div>
                 )}
 
-                {activeTab === 'ministries' && canManageSettings && currentOrg && (
+                {!showAdminOnboarding && !showUserOnboarding && activeTab === 'ministries' && canManageSettings && currentOrg && (
                   <div className="animate-fade-in">
                     <MinistryList 
                       ministries={ministries}
@@ -981,7 +1064,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS teams_org_name_idx ON public.teams (organizati
                   </div>
                 )}
 
-                {activeTab === 'eventTypes' && canManageSettings && currentOrg && (
+                {!showAdminOnboarding && !showUserOnboarding && activeTab === 'eventTypes' && canManageSettings && currentOrg && (
                   <div className="animate-fade-in">
                     <EventTypeList 
                       eventTypes={eventTypes}

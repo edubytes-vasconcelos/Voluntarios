@@ -51,13 +51,24 @@ export const db = {
     if (error) {
         console.error("Erro RPC:", error);
         
-        // Se o erro for de função inexistente, permissão, ou VIOLAÇÃO DE CHAVE ÚNICA (23505),
-        // lançamos o erro específico para que a UI mostre o Script SQL de correção.
+        // Se for um erro de rede (falha ao buscar), lançamos um erro específico
+        if (error.message && typeof error.message === 'string' && error.message.includes('Failed to fetch')) {
+             throw new Error("NETWORK_ERROR_DURING_ORG_CREATION");
+        }
+        // Se a função RPC não existir ou houver um erro de chave única (23505),
+        // lançamos um erro específico para que a UI mostre o Script SQL de correção.
         if (error.code === '42883' || error.code === '23505' || error.message?.includes('violates unique constraint')) {
-             throw new Error("MISSING_DB_FUNCTION"); 
+             throw new Error("MISSING_DB_FUNCTION_DURING_ORG_CREATION"); 
         }
         
         throw error; // Relança qualquer outro erro retornado pela RPC
+    }
+
+    // Após criar a organização, defina o ID imediatamente para o contexto do DB
+    if (data) {
+      setDbOrganizationId(data); // Explicitly set currentOrganizationId
+      // REMOVIDO: Não chamamos mais addInitialOnboardingData aqui.
+      // O onboarding será guiado pelo frontend.
     }
 
     return data;
