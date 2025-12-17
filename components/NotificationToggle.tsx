@@ -7,6 +7,9 @@ interface NotificationToggleProps {
   userId?: string;
 }
 
+// URL do ícone de notificação consistente com o manifest.json
+const NOTIFICATION_ICON_URL = "https://ui-avatars.com/api/?name=GE&background=004a5e&color=fff&size=192&rounded=true";
+
 const NotificationToggle: React.FC<NotificationToggleProps> = ({ userId }) => {
   const [permission, setPermission] = useState<NotificationPermission>('default');
   const [loading, setLoading] = useState(false);
@@ -149,7 +152,7 @@ const NotificationToggle: React.FC<NotificationToggleProps> = ({ userId }) => {
                     // Sucesso Real - Exibe uma notificação de teste real via SW
                     reg.showNotification('Notificações Ativadas!', {
                         body: 'Você receberá alertas da escala.',
-                        icon: '/icon.png'
+                        icon: NOTIFICATION_ICON_URL // Usando URL consistente
                     });
                     console.log("Notificações: Subscrição push bem-sucedida e notificação de teste enviada.");
 
@@ -197,7 +200,7 @@ const NotificationToggle: React.FC<NotificationToggleProps> = ({ userId }) => {
                 try {
                     new Notification('🔔 Teste (Modo Simulado)', {
                         body: 'O sistema está funcionando! Em produção, isso seria uma notificação Push real.',
-                        icon: '/icon.png'
+                        icon: NOTIFICATION_ICON_URL // Usando URL consistente
                     });
                     console.log("Notificações: Notificação new Notification() disparada em modo simulado.");
                 } catch (e) {
@@ -216,7 +219,7 @@ const NotificationToggle: React.FC<NotificationToggleProps> = ({ userId }) => {
             try {
                 await swRegistration.showNotification('Teste de Escala', {
                     body: 'O sistema de notificações está funcionando neste dispositivo.',
-                    icon: '/icon.png',
+                    icon: NOTIFICATION_ICON_URL, // Usando URL consistente
                     tag: 'test-notification'
                 });
                 console.log("Notificações: Notificação via swRegistration.showNotification() disparada.");
