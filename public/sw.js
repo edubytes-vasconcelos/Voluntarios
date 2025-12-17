@@ -31,15 +31,17 @@ self.addEventListener('push', function(event) {
       .catch(error => {
         console.error("Service Worker: ERRO FATAL ao disparar notificação PUSH:", error);
         console.error("  Tipo do erro:", typeof error);
-        if (error) {
-          console.error("  Nome do erro:", error.name);
-          console.error("  Mensagem do erro:", error.message);
-          console.error("  Pilha do erro:", error.stack);
+        if (error) { // Only attempt to log properties if error is not undefined/null
+          console.error("  Nome do erro:", error.name || 'N/A');
+          console.error("  Mensagem do erro:", error.message || 'N/A');
+          console.error("  Pilha do erro:", error.stack || 'N/A');
           try {
             console.error("  Erro (JSON):", JSON.stringify(error));
           } catch (e) {
-            console.error("  Não foi possível stringificar o erro para JSON.");
+            console.error("  Não foi possível stringificar o erro para JSON (possível circular reference ou undefined).");
           }
+        } else {
+           console.error("  Objeto de erro era undefined ou null."); // Explicit log for this case
         }
       })
   );
@@ -69,12 +71,23 @@ self.addEventListener('message', function(event) {
   console.log("Service Worker: Mensagem recebida do cliente:", event.data);
   if (event.data && event.data.command === 'showTestNotification') {
     const { title, body, icon, tag } = event.data;
+    
+    // Configura as opções da notificação.
+    // O ícone é adicionado condicionalmente para testar se ele causa o problema 'undefined'.
     const options = {
       body: body,
-      icon: icon,
       tag: tag,
       vibrate: [100, 50, 100]
     };
+
+    // DEBUGGING: Adiciona o ícone apenas se for uma string válida e não vazia.
+    // Se a notificação funcionar sem o ícone, o problema está no arquivo /icon.png.
+    if (typeof icon === 'string' && icon.length > 0) {
+        options.icon = icon;
+        options.badge = icon; // Também aplica ao badge
+    } else {
+        console.warn("Service Worker: Notificação de teste disparada SEM ícone, pois o ícone fornecido era inválido ou ausente. Verifique se public/icon.png existe.");
+    }
     
     console.log("Service Worker: Disparando notificação de teste com opções:", options);
     event.waitUntil(
@@ -82,15 +95,17 @@ self.addEventListener('message', function(event) {
         .catch(error => {
           console.error("Service Worker: ERRO FATAL ao disparar notificação de TESTE (recebida por mensagem):", error);
           console.error("  Tipo do erro:", typeof error);
-          if (error) {
-            console.error("  Nome do erro:", error.name);
-            console.error("  Mensagem do erro:", error.message);
-            console.error("  Pilha do erro:", error.stack);
+          if (error) { // Only attempt to log properties if error is not undefined/null
+            console.error("  Nome do erro:", error.name || 'N/A');
+            console.error("  Mensagem do erro:", error.message || 'N/A');
+            console.error("  Pilha do erro:", error.stack || 'N/A');
             try {
               console.error("  Erro (JSON):", JSON.stringify(error));
             } catch (e) {
-              console.error("  Não foi possível stringificar o erro para JSON.");
+              console.error("  Não foi possível stringificar o erro para JSON (possível circular reference ou undefined).");
             }
+          } else {
+             console.error("  Objeto de erro era undefined ou null."); // Explicit log for this case
           }
         })
     );
