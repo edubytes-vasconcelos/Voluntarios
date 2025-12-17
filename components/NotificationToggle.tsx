@@ -149,12 +149,24 @@ const NotificationToggle: React.FC<NotificationToggleProps> = ({ userId }) => {
                 try {
                     await subscribeToPush(reg);
                     
-                    // Sucesso Real - Exibe uma notificação de teste real via SW
-                    reg.showNotification('Notificações Ativadas!', {
-                        body: 'Você receberá alertas da escala.',
-                        icon: NOTIFICATION_ICON_URL // Usando URL consistente
-                    });
-                    console.log("Notificações: Subscrição push bem-sucedida e notificação de teste enviada.");
+                    // Sucesso Real - Exibe uma notificação de teste real via Service Worker
+                    if (reg.active) {
+                        reg.active.postMessage({
+                            command: 'showTestNotification',
+                            title: 'Notificações Ativadas!',
+                            body: 'Você receberá alertas da escala.',
+                            icon: NOTIFICATION_ICON_URL,
+                            tag: 'initial-activation'
+                        });
+                        console.log("Notificações: Mensagem de ativação enviada ao Service Worker.");
+                    } else {
+                        console.warn("Notificações: Service Worker ativo não disponível para enviar mensagem de ativação.");
+                        // Fallback para new Notification se não conseguir comunicar com SW ativo
+                        new Notification('Notificações Ativadas!', {
+                            body: 'Você receberá alertas da escala.',
+                            icon: NOTIFICATION_ICON_URL
+                        });
+                    }
 
                 } catch (subErr: any) {
                     console.error("Notificações: Falha na subscrição push real (VAPID Key ou outro erro):", subErr, "Tipo do erro:", typeof subErr);
@@ -215,21 +227,24 @@ const NotificationToggle: React.FC<NotificationToggleProps> = ({ userId }) => {
             return;
         }
 
-        if (swRegistration) {
+        // Se não for simulado e tiver Service Worker ativo, envia mensagem para ele
+        if (swRegistration && swRegistration.active) {
             try {
-                await swRegistration.showNotification('Teste de Escala', {
+                swRegistration.active.postMessage({
+                    command: 'showTestNotification',
+                    title: 'Teste de Escala',
                     body: 'O sistema de notificações está funcionando neste dispositivo.',
-                    icon: NOTIFICATION_ICON_URL, // Usando URL consistente
+                    icon: NOTIFICATION_ICON_URL,
                     tag: 'test-notification'
                 });
-                console.log("Notificações: Notificação via swRegistration.showNotification() disparada.");
+                console.log("Notificações: Mensagem de teste enviada ao Service Worker.");
             } catch (e) {
-                console.error("Notificações: Erro ao disparar notificação via swRegistration.showNotification():", e, "Tipo do erro:", typeof e);
-                alert("Erro ao disparar notificação de teste (via Service Worker). Verifique as permissões do navegador ou o status do Service Worker. Detalhes no console.");
+                console.error("Notificações: Erro ao enviar mensagem de teste ao Service Worker:", e, "Tipo do erro:", typeof e);
+                alert("Erro ao enviar comando de notificação de teste. Verifique o console para mais detalhes.");
             }
         } else {
-            console.warn("Notificações: swRegistration não disponível para teste real, apesar de não estar em modo simulado. Algo está inconsistente.");
-            alert("O Service Worker não está registrado ou disponível para enviar notificações. Tente recarregar a página ou ativar as notificações.");
+            console.warn("Notificações: swRegistration ou Service Worker ativo não disponível para teste real.");
+            alert("O Service Worker não está registrado ou ativo para enviar notificações. Tente recarregar a página ou ativar as notificações.");
         }
     } catch (e: any) {
         console.error("Notificações: Erro inesperado no handleTestNotification:", e, "Tipo do erro:", typeof e);

@@ -42,3 +42,23 @@ self.addEventListener('notificationclick', function(event) {
     })
   );
 });
+
+// NOVO: Listener para mensagens do cliente (ex: para testar notificações)
+self.addEventListener('message', function(event) {
+  if (event.data && event.data.command === 'showTestNotification') {
+    const { title, body, icon, tag } = event.data;
+    const options = {
+      body: body,
+      icon: icon,
+      tag: tag,
+      vibrate: [100, 50, 100]
+    };
+    
+    event.waitUntil(
+      self.registration.showNotification(title, options)
+        .catch(error => {
+          console.error("Service Worker: Erro ao disparar notificação recebida por mensagem:", error, "Tipo do erro:", typeof error);
+        })
+    );
+  }
+});
