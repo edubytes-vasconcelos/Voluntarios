@@ -16,22 +16,29 @@ const NotificationToggle: React.FC<NotificationToggleProps> = ({ userId }) => {
   useEffect(() => {
     // Verifica suporte do navegador
     if (!('Notification' in window) || !('serviceWorker' in navigator)) {
+        console.log("Notificações: Navegador não suporta ou sem Service Worker. Modo simulado.");
         setIsSimulated(true);
         return;
     }
 
     if ('Notification' in window) {
       setPermission(Notification.permission);
+      console.log("Notificações: Permissão inicial:", Notification.permission);
     }
     
     // Verifica se já existe um Service Worker ativo
     navigator.serviceWorker.getRegistration()
     .then(reg => {
-        if (reg) setSwRegistration(reg);
+        if (reg) {
+            setSwRegistration(reg);
+            console.log("Notificações: Service Worker registrado:", reg);
+        } else {
+            console.log("Notificações: Nenhum Service Worker encontrado inicialmente.");
+        }
     })
     .catch(err => {
         // Se falhar (comum em iframes/stackblitz), usa modo simulado
-        console.warn("Service Worker check failed, switching to simulated:", err);
+        console.warn("Notificações: Verificação do Service Worker falhou, mudando para simulado:", err);
         setIsSimulated(true);
     });
 
@@ -52,6 +59,7 @@ const NotificationToggle: React.FC<NotificationToggleProps> = ({ userId }) => {
         }
         return outputArray;
     } catch (e) {
+        console.error("Erro ao decodificar chave VAPID:", e);
         throw new Error("VAPID Key mal formatada.");
     }
   }
@@ -60,14 +68,21 @@ const NotificationToggle: React.FC<NotificationToggleProps> = ({ userId }) => {
       // Tenta ler do Vite (import.meta) ou do process.env com segurança
       let key = '';
       try {
-          // @ts-ignore
+          // @ts-ignore: Vite's import.meta.env is not fully typed globally
           key = import.meta.env.VITE_VAPID_PUBLIC_KEY;
-      } catch (e) {}
+          console.log("VAPID Key (import.meta.env):", key ? "Encontrada" : "Ausente");
+      } catch (e) {
+          console.warn("Erro ao tentar ler VITE_VAPID_PUBLIC_KEY de import.meta.env:", e);
+      }
       
+      // Fallback para process.env, útil em alguns setups ou para compatibilidade
       if (!key) {
           try {
               key = process.env.VITE_VAPID_PUBLIC_KEY || '';
-          } catch (e) {}
+              console.log("VAPID Key (process.env):", key ? "Encontrada" : "Ausente");
+          } catch (e) {
+              console.warn("Erro ao tentar ler VITE_VAPID_PUBLIC_KEY de process.env:", e);
+          }
       }
       return key;
   }
@@ -76,8 +91,9 @@ const NotificationToggle: React.FC<NotificationToggleProps> = ({ userId }) => {
     const VAPID_PUBLIC_KEY = getVapidKey();
     
     if (!VAPID_PUBLIC_KEY) {
+        console.error("VAPID_PUBLIC_KEY ausente. Não é possível subscrever a notificações push reais.");
         // Lança erro específico para ser tratado no catch
-        throw new Error("CHAVE_AUSENTE");
+        throw new Error("CHAVE_VAPID_AUSENTE");
     }
 
     const applicationServerKey = urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
@@ -90,6 +106,7 @@ const NotificationToggle: React.FC<NotificationToggleProps> = ({ userId }) => {
     
     if (userId) {
       await db.savePushSubscription(userId, sub);
+      console.log("Notificações: Subscrição salva no DB para userId:", userId);
     }
   };
 
@@ -100,19 +117,22 @@ const NotificationToggle: React.FC<NotificationToggleProps> = ({ userId }) => {
     }
 
     setLoading(true);
+    console.log("Notificações: Iniciando ativação...");
     
     // Timeout de segurança para não travar
     const safetyTimeout = setTimeout(() => {
         if (loading) {
             setLoading(false);
-            // Se demorar muito, assume simulado para não travar o usuário
+            console.warn("Notificações: Ativação demorou demais, caindo para modo simulado.");
             setIsSimulated(true);
+            alert("Não foi possível ativar as notificações reais. Tente configurar as chaves VAPID ou verifique as permissões do navegador.");
         }
-    }, 8000);
+    }, 15000); // Aumentado para 15 segundos
 
     try {
       const perm = await Notification.requestPermission();
       setPermission(perm);
+      console.log("Notificações: Permissão concedida:", perm);
 
       if (perm === 'granted') {
         if ('serviceWorker' in navigator) {
@@ -120,74 +140,104 @@ const NotificationToggle: React.FC<NotificationToggleProps> = ({ userId }) => {
                 // Registra o Service Worker
                 let reg = await navigator.serviceWorker.register('/sw.js');
                 setSwRegistration(reg);
+                console.log("Notificações: Service Worker registrado com sucesso:", reg);
                 
                 // Tenta fazer a subscrição real
                 try {
                     await subscribeToPush(reg);
                     
-                    // Sucesso Real
+                    // Sucesso Real - Exibe uma notificação de teste real via SW
                     reg.showNotification('Notificações Ativadas!', {
                         body: 'Você receberá alertas da escala.',
                         icon: '/icon.png'
                     });
+                    console.log("Notificações: Subscrição push bem-sucedida e notificação de teste enviada.");
 
                 } catch (subErr: any) {
-                    // SE FALHAR A SUBSCRIÇÃO (Chave ausente ou erro de rede)
-                    // ATIVA O MODO SIMULADO AUTOMATICAMENTE E SILENCIOSAMENTE
-                    console.log("Modo Real falhou (provavelmente sem chave), ativando Simulado.", subErr.message);
+                    console.error("Notificações: Falha na subscrição push real (VAPID Key ou outro erro):", subErr.message);
+                    // SE FALHAR A SUBSCRIÇÃO (Chave ausente, erro de rede, VAPID mal formatada etc)
+                    // ATIVA O MODO SIMULADO AUTOMATICAMENTE E SILENCIOSAMENTE para o Service Worker ainda poder mostrar notificações locais.
                     setIsSimulated(true);
+                    alert("As notificações foram ativadas, mas a funcionalidade de Push em segundo plano pode estar limitada (verifique as chaves VAPID). O teste local deve funcionar.");
                 }
 
             } catch (swErr: any) {
-                console.error("Erro Fatal SW:", swErr);
+                console.error("Notificações: Erro Fatal ao registrar SW. Caindo para modo simulado:", swErr);
                 // Falha no SW (arquivo não encontrado etc), vai para simulado
                 setIsSimulated(true);
+                alert("Erro ao configurar o serviço de notificações. Notificações limitadas.");
             }
         } else {
+            console.log("Notificações: navigator.serviceWorker não disponível. Modo simulado.");
             setIsSimulated(true);
         }
-      } 
+      } else {
+          console.log("Notificações: Permissão não concedida (", perm, ").");
+      }
     } catch (e: any) {
-      console.error("Erro geral:", e);
+      console.error("Notificações: Erro geral no handleEnable:", e);
       setIsSimulated(true);
+      alert("Ocorreu um erro ao tentar ativar as notificações.");
     } finally {
       clearTimeout(safetyTimeout);
       setLoading(false);
+      console.log("Notificações: Ativação finalizada. isSimulated:", isSimulated, "Permission:", permission);
     }
   };
 
   const handleTestNotification = async () => {
+     console.log("Notificações: Testar Notificação clicado.");
+     console.log("Notificações: Estado atual - isSimulated:", isSimulated, "Permission:", permission, "swRegistration:", swRegistration);
+
      if (isSimulated) {
-         // Notificação visual fake para teste
+         // Notificação visual fake para teste no modo simulado
          if ('Notification' in window && Notification.permission === 'granted') {
-             new Notification('🔔 Teste (Modo Simulado)', {
-                 body: 'O sistema está funcionando! Em produção, isso seria uma notificação Push real.',
-                 icon: '/icon.png'
-             });
+             try {
+                new Notification('🔔 Teste (Modo Simulado)', {
+                    body: 'O sistema está funcionando! Em produção, isso seria uma notificação Push real.',
+                    icon: '/icon.png'
+                });
+                console.log("Notificações: Notificação new Notification() disparada em modo simulado.");
+             } catch (e) {
+                 console.warn("Notificações: Falha ao disparar new Notification() em modo simulado, fallback para alert():", e);
+                 alert("🔔 [SIMULAÇÃO]\n\nNotificação visual enviada com sucesso (via alert, pois a notificação nativa falhou ou não tem permissão para a aba).");
+             }
          } else {
-             alert("🔔 [SIMULAÇÃO]\n\nNotificação visual enviada com sucesso!");
+             // Fallback para alert() se a permissão não for granted (para a aba atual)
+             console.log("Notificações: new Notification() não possível em modo simulado, disparando alert().");
+             alert("🔔 [SIMULAÇÃO]\n\nNotificação visual enviada com sucesso (via alert, pois a notificação nativa falhou ou não tem permissão para a aba).");
          }
          return;
      }
 
      if (swRegistration) {
-         swRegistration.showNotification('Teste de Escala', {
-             body: 'O sistema de notificações está funcionando neste dispositivo.',
-             icon: '/icon.png',
-             tag: 'test-notification'
-         });
+         try {
+             await swRegistration.showNotification('Teste de Escala', {
+                 body: 'O sistema de notificações está funcionando neste dispositivo.',
+                 icon: '/icon.png',
+                 tag: 'test-notification'
+             });
+             console.log("Notificações: Notificação via swRegistration.showNotification() disparada.");
+         } catch (e) {
+             console.error("Notificações: Erro ao disparar notificação via swRegistration.showNotification():", e);
+             alert("Erro ao disparar notificação de teste (via Service Worker). Verifique as permissões do navegador ou o status do Service Worker.");
+         }
+     } else {
+         console.warn("Notificações: swRegistration não disponível para teste real, apesar de não estar em modo simulado. Algo está inconsistente.");
+         alert("O Service Worker não está registrado ou disponível para enviar notificações. Tente recarregar a página ou ativar as notificações.");
      }
   }
 
   // --- RENDER ---
 
-  // Se estiver em modo simulado, mostra ícone Amarelo com alerta
+  // Se estiver em modo simulado (Service Worker não funciona ou chaves VAPID ausentes/inválidas), mostra ícone Amarelo com alerta
+  // E só se a permissão não foi explicitamente negada
   if (isSimulated && permission !== 'denied') {
        return (
           <button 
             onClick={handleTestNotification}
             className="p-2 text-yellow-600 hover:bg-yellow-50 rounded-full transition-colors relative group"
-            title="Modo Simulado (Ambiente de Desenvolvimento)"
+            title="Modo Simulado (Ambiente de Desenvolvimento ou chaves VAPID ausentes)"
           >
               <AlertTriangle size={20} />
               {/* Indicador de Status */}
@@ -201,7 +251,7 @@ const NotificationToggle: React.FC<NotificationToggleProps> = ({ userId }) => {
        );
   }
 
-  // Se estiver real e funcionando, mostra ícone Verde/Azul
+  // Se estiver real e funcionando (permissão concedida E Service Worker registrado)
   if (permission === 'granted' && swRegistration) {
       return (
           <button 
@@ -218,7 +268,7 @@ const NotificationToggle: React.FC<NotificationToggleProps> = ({ userId }) => {
       )
   }
 
-  // Estado inicial (Desativado)
+  // Estado inicial (Desativado ou Permission 'default') ou Permission 'denied'
   return (
     <button
       onClick={handleEnable}
@@ -226,7 +276,7 @@ const NotificationToggle: React.FC<NotificationToggleProps> = ({ userId }) => {
       className={`p-2 rounded-full transition-colors relative ${
           permission === 'denied' ? 'text-gray-300 cursor-not-allowed' : 'text-brand-muted hover:text-brand-secondary hover:bg-gray-100'
       }`}
-      title={permission === 'denied' ? 'Notificações bloqueadas pelo navegador' : 'Ativar Notificações'}
+      title={permission === 'denied' ? 'Notificações bloqueadas pelo navegador. Habilite nas configurações do site.' : 'Ativar Notificações'}
     >
       {loading ? <Loader2 size={20} className="animate-spin" /> : <BellOff size={20} />}
     </button>
