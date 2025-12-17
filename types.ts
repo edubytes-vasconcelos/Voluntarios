@@ -26,6 +26,8 @@ export interface Volunteer {
   unavailableDates?: string[]; // ISO Date strings
   avatarUrl?: string;
   accessLevel?: AccessLevel; // Novo campo para controle de permissão
+  whatsappNumber?: string; // NOVO: Número de WhatsApp
+  receiveWhatsappNotifications?: boolean; // NOVO: Preferência de notificações via WhatsApp
 }
 
 export interface Team {

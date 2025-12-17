@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Volunteer, ServiceEvent, Ministry, EventType, AccessLevel, Team, AuditLogEntry, Organization } from './types';
 // Removed unused INITIAL_* imports to prevent accidental inheritance of sample data
@@ -434,8 +435,14 @@ const App: React.FC = () => {
   // --- RECOVERY / REPAIR SCREEN (Exclusively for DB Repair now) ---
   if (needsDbRepair) {
       
-      // SCRIPT SQL 'COMPLETE RESET' (V19) - Correção de Constraints Globais e Duplicidade
-      const SQL_SCRIPT = `-- SOLUÇÃO V19: CORREÇÃO DO ERRO "record 'r' is not assigned yet" E ROBUSTEZ NA REMOÇÃO DE CONSTRAINTS, AGORA INCLUINDO EVENT_TYPES E TEAMS
+      // SCRIPT SQL 'COMPLETE RESET' (V22 - Frontend improvements version, SQL content still V21)
+      const SQL_SCRIPT = `-- SOLUÇÃO V22: ADIÇÃO DE COLUNAS DE WHATSAPP E CORREÇÃO GERAL DE CONSTRAINTS/RLS (FRONTEND V22)
+
+-- 0. Adição das novas colunas de WhatsApp na tabela volunteers
+--    CRÍTICO: Isso deve ser feito ANTES de recriar as políticas RLS para que elas considerem as novas colunas.
+ALTER TABLE public.volunteers
+ADD COLUMN IF NOT EXISTS whatsapp_number text,
+ADD COLUMN IF NOT EXISTS receive_whatsapp_notifications boolean DEFAULT FALSE;
 
 -- 1. Limpeza de Funções Antigas
 DROP FUNCTION IF EXISTS get_my_org_id() CASCADE;
@@ -576,7 +583,7 @@ GRANT ALL ON TABLE event_types TO authenticated;
 GRANT ALL ON TABLE audit_logs TO authenticated;
 GRANT ALL ON TABLE push_subscriptions TO authenticated;
 
--- 9. CORREÇÃO CRÍTICA DE CONSTRAINTS E ÍNDICES (V19 - Adiciona para event_types e teams)
+-- 9. CORREÇÃO CRÍTICA DE CONSTRAINTS E ÍNDICES
 -- Este bloco visa ser EXAUSTIVO na remoção de qualquer constraint ou índice de unicidade conflitante
 -- e, em seguida, recria a correta.
 
@@ -657,8 +664,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS teams_org_name_idx ON public.teams (organizati
                         </div>
                         <h2 className="text-xl font-bold text-red-700 mb-2">Configuração de Banco Necessária</h2>
                         <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-left text-sm text-red-800 mb-4">
+                            {/* Corrected to use local state variable setupRepairMsg */}
                             <p className="font-bold flex items-center gap-2 mb-2"><AlertCircle size={16}/> {repairErrorMsg || 'Correção de Vínculo de Contas'}</p>
-                            <p>O script <strong className="text-red-900">V19</strong> abaixo corrige um problema persistente onde o banco de dados impedia que igrejas diferentes usassem o mesmo nome de ministério (ex: "Louvor"), e agora também para <strong className="text-red-900">Tipos de Evento e Equipes</strong>.</p>
+                            <p>O script <strong className="text-red-900">V22</strong> abaixo corrige um problema persistente onde o banco de dados impedia que igrejas diferentes usassem o mesmo nome de ministério (ex: "Louvor"), e agora também para <strong className="text-red-900">Tipos de Evento e Equipes</strong>. **Esta versão também adiciona os novos campos de WhatsApp.**</p>
                         </div>
                   </div>
 
@@ -666,7 +674,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS teams_org_name_idx ON public.teams (organizati
                   <div className="text-left mb-6 bg-slate-50 border border-slate-200 rounded-lg p-4">
                       <h3 className="font-bold text-slate-800 flex items-center gap-2 mb-2">
                           <Database size={18} />
-                          Script de Atualização (V19)
+                          Script de Atualização (V22)
                       </h3>
                       <ol className="list-decimal list-inside text-xs text-slate-500 mb-3 space-y-1">
                           <li>Copie o código SQL abaixo.</li>
@@ -699,6 +707,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS teams_org_name_idx ON public.teams (organizati
                      </button>
                      
                      <div className="border-t border-gray-100 pt-3 mt-1">
+                        {/* Use the App.tsx's handleLogout function */}
                         <button onClick={handleLogout} className="text-brand-secondary hover:underline font-medium text-sm">Sair e tentar outra conta</button>
                      </div>
                   </div>

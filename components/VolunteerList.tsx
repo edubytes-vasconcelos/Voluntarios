@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Volunteer, RoleType, AccessLevel } from '../types';
-import { Plus, Trash2, User, Check, Image as ImageIcon, Camera, Upload, X, Shield, Mail, Info } from 'lucide-react';
+import { Plus, Trash2, User, Check, Image as ImageIcon, Camera, Upload, X, Shield, Mail, Info, Smartphone, Bell, BellOff, HelpCircle } from 'lucide-react';
 
 interface VolunteerListProps {
   volunteers: Volunteer[];
@@ -23,6 +23,10 @@ const VolunteerList: React.FC<VolunteerListProps> = ({ volunteers, roles, onAddV
   
   const [selectedRoles, setSelectedRoles] = useState<RoleType[]>([]);
   
+  // NEW STATES for WhatsApp
+  const [newWhatsappNumber, setNewWhatsappNumber] = useState('');
+  const [newReceiveWhatsappNotifications, setNewReceiveWhatsappNotifications] = useState(false);
+
   // Camera states
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -111,15 +115,23 @@ const VolunteerList: React.FC<VolunteerListProps> = ({ volunteers, roles, onAddV
   const handleAdd = () => {
     if (!newName.trim() || selectedRoles.length === 0) return;
     
+    // Basic WhatsApp number validation (e.g., just check if it's not empty if the checkbox is checked)
+    if (newReceiveWhatsappNotifications && !newWhatsappNumber.trim()) {
+        alert("Por favor, insira o número do WhatsApp se deseja receber notificações.");
+        return;
+    }
+
     const finalAvatarUrl = capturedImage || (avatarUrlInput.trim() ? avatarUrlInput.trim() : undefined);
 
     const newVol: Volunteer = {
       id: Date.now().toString(),
       name: newName,
-      email: newEmail,
+      email: newEmail.trim() || undefined, // Allow empty email (but it's needed for login)
       roles: selectedRoles,
       avatarUrl: finalAvatarUrl,
-      accessLevel: newAccessLevel
+      accessLevel: newAccessLevel,
+      whatsappNumber: newWhatsappNumber.trim() || undefined,
+      receiveWhatsappNotifications: newReceiveWhatsappNotifications
     };
     onAddVolunteer(newVol);
     
@@ -130,6 +142,8 @@ const VolunteerList: React.FC<VolunteerListProps> = ({ volunteers, roles, onAddV
     setCapturedImage('');
     setSelectedRoles([]);
     setNewAccessLevel('volunteer');
+    setNewWhatsappNumber('');
+    setNewReceiveWhatsappNotifications(false);
     setIsAdding(false);
     stopCamera();
   };
@@ -230,6 +244,42 @@ const VolunteerList: React.FC<VolunteerListProps> = ({ volunteers, roles, onAddV
                           </div>
                       </div>
                   </div>
+                  
+                  {/* WhatsApp Number Input */}
+                  <div>
+                      <label className="block text-sm font-medium text-brand-secondary mb-1">Número de WhatsApp</label>
+                      <div className="relative">
+                          <div className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-muted"><Smartphone size={18} /></div>
+                          <input 
+                            type="tel" 
+                            value={newWhatsappNumber} 
+                            onChange={(e) => setNewWhatsappNumber(e.target.value)} 
+                            className="w-full border border-brand-muted/30 rounded-lg pl-10 pr-4 py-2 focus:ring-2 focus:ring-brand-primary focus:outline-none bg-brand-bg/50" 
+                            placeholder="Ex: +55 (DDD) 98765-4321"
+                          />
+                      </div>
+                  </div>
+
+                  {/* WhatsApp Notifications Toggle */}
+                  <div className="flex items-center gap-2">
+                    <input 
+                        type="checkbox" 
+                        id="whatsappNotifications" 
+                        checked={newReceiveWhatsappNotifications} 
+                        onChange={(e) => setNewReceiveWhatsappNotifications(e.target.checked)}
+                        className="rounded text-brand-primary focus:ring-brand-primary h-4 w-4 cursor-pointer"
+                    />
+                    <label htmlFor="whatsappNotifications" className="text-sm text-brand-secondary cursor-pointer select-none flex items-center gap-1">
+                        <Bell size={16} /> Receber notificações por WhatsApp
+                        <span className="group relative">
+                            <HelpCircle size={14} className="text-brand-muted ml-1 cursor-help" />
+                            <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-64 p-2 bg-gray-800 text-white text-xs rounded-md opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg">
+                                Para isso funcionar, a igreja precisa configurar uma integração com a API oficial do WhatsApp.
+                            </span>
+                        </span>
+                    </label>
+                  </div>
+
 
                   <div>
                       <label className="block text-sm font-medium text-brand-secondary mb-2">
@@ -300,6 +350,17 @@ const VolunteerList: React.FC<VolunteerListProps> = ({ volunteers, roles, onAddV
                   )}
               </div>
               <p className="text-xs text-brand-muted truncate mb-1">{volunteer.email || 'Sem email'}</p>
+              {volunteer.whatsappNumber && (
+                  <p className="text-xs text-brand-muted flex items-center gap-1 mb-1">
+                      <Smartphone size={12} className="shrink-0" /> {volunteer.whatsappNumber}
+                      {/* Fix: Wrap Bell and BellOff with span for title attribute */}
+                      {volunteer.receiveWhatsappNotifications ? (
+                          <span title="Recebe notificações WhatsApp"><Bell size={12} className="text-green-500 ml-1" /></span>
+                      ) : (
+                          <span title="Não recebe notificações WhatsApp"><BellOff size={12} className="text-gray-400 ml-1" /></span>
+                      )}
+                  </p>
+              )}
               <div className="flex flex-wrap gap-1 mt-1">
                 {volunteer.roles.map(role => (
                   <span key={role} className="text-xs px-2 py-0.5 bg-brand-bg text-brand-secondary/80 rounded-md border border-brand-muted/20">

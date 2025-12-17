@@ -130,7 +130,9 @@ export const db = {
       roles: v.roles || [],
       avatarUrl: v.avatar_url,
       email: v.email,
-      accessLevel: v.access_level || 'volunteer'
+      accessLevel: v.access_level || 'volunteer',
+      whatsappNumber: v.whatsapp_number, // NOVO: Mapeia o campo do banco
+      receiveWhatsappNotifications: v.receive_whatsapp_notifications // NOVO: Mapeia o campo do banco
     }));
   },
 
@@ -145,7 +147,9 @@ export const db = {
       roles: volunteer.roles,
       avatar_url: volunteer.avatarUrl,
       email: volunteer.email,
-      access_level: volunteer.accessLevel
+      access_level: volunteer.accessLevel,
+      whatsapp_number: volunteer.whatsappNumber, // NOVO: Insere o campo
+      receive_whatsapp_notifications: volunteer.receiveWhatsappNotifications // NOVO: Insere o campo
     });
     if (error) throw error;
   },
