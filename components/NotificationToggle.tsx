@@ -158,7 +158,7 @@ const NotificationToggle: React.FC<NotificationToggleProps> = ({ userId }) => {
                             command: 'showTestNotification',
                             title: 'Notificações Ativadas!',
                             body: 'Você receberá alertas da escala.',
-                            // REMOVIDO PARA TESTE: icon: NOTIFICATION_ICON_URL,
+                            // AQUI REMOVEMOS O ICON: NOTIFICATION_ICON_URL,
                             tag: 'initial-activation'
                         });
                         console.log("Notificações: Mensagem de ativação enviada ao Service Worker.");
@@ -237,7 +237,7 @@ const NotificationToggle: React.FC<NotificationToggleProps> = ({ userId }) => {
                     command: 'showTestNotification',
                     title: 'Teste de Escala',
                     body: 'O sistema de notificações está funcionando neste dispositivo.',
-                    // REMOVIDO PARA TESTE: icon: NOTIFICATION_ICON_URL,
+                    // AQUI REMOVEMOS O ICON: NOTIFICATION_ICON_URL,
                     tag: 'test-notification'
                 });
                 console.log("Notificações: Mensagem de teste enviada ao Service Worker.");
